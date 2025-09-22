@@ -5,6 +5,7 @@
 # LICENSE file in the root directory of this source tree.
 
 import os
+import re
 os.environ["OPENCV_IO_ENABLE_OPENEXR"] = "1"
 import cv2
 import math
@@ -652,13 +653,13 @@ def read_image_cv2(path: str, rgb: bool = True) -> np.ndarray:
 
 def read_depth(path: str, scale_adjustment=1.0) -> np.ndarray:
     """
-    Reads a depth map from disk in either .exr or .png format. The .exr is loaded using OpenCV
+    Reads a depth map from disk in either .exr or .png or .pfm format. The .exr is loaded using OpenCV
     with the environment variable OPENCV_IO_ENABLE_OPENEXR=1. The .png is assumed to be a 16-bit
     PNG (converted from half float).
 
     Args:
         path (str):
-            File path to the depth image. Must end with .exr or .png.
+            File path to the depth image. Must end with .exr or .png or .pfm.
         scale_adjustment (float):
             A multiplier for adjusting the loaded depth values (default=1.0).
 
@@ -677,6 +678,8 @@ def read_depth(path: str, scale_adjustment=1.0) -> np.ndarray:
         d[d > 1e9] = 0.0
     elif path.lower().endswith(".png"):
         d = load_16big_png_depth(path)
+    elif path.lower().endswith(".pfm"):
+        d = load_pfm_depth(path)
     else:
         raise ValueError(f'unsupported depth file name "{path}"')
 
@@ -709,3 +712,39 @@ def load_16big_png_depth(depth_png: str) -> np.ndarray:
             .reshape((depth_pil.size[1], depth_pil.size[0]))
         )
     return depth
+
+
+def load_pfm_depth(depth_file: str) -> np.ndarray:
+    with open(depth_file, 'rb') as file:
+        header = file.readline().decode('UTF-8').strip()
+
+        if header == 'PF':
+            is_color = True
+        elif header == 'Pf':
+            is_color = False
+        else:
+            raise ValueError('The provided file is not a valid PFM file.')
+
+        dimensions = re.match(r'^(\d+)\s(\d+)\s$', file.readline().decode('UTF-8'))
+        if dimensions:
+            img_width, img_height = map(int, dimensions.groups())
+        else:
+            raise ValueError('Invalid PFM header format.')
+
+        endian_scale = float(file.readline().decode('UTF-8').strip())
+        if endian_scale < 0:
+            dtype = '<f'  # little-endian
+        else:
+            dtype = '>f'  # big-endian
+
+        data_buffer = file.read()
+        img_data = np.frombuffer(data_buffer, dtype=dtype)
+
+        if is_color:
+            img_data = np.reshape(img_data, (img_height, img_width, 3))
+        else:
+            img_data = np.reshape(img_data, (img_height, img_width))
+
+        img_data = cv2.flip(img_data, 0)
+
+    return img_data

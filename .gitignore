@@ -1,6 +1,13 @@
 .hydra/
 output/
 ckpt/
+vggt_ckpt/
+vggt_data/
+vggt_data
+AGENTS.md
+logs/
+stats/
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 **/__pycache__/

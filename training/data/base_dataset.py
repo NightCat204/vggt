@@ -9,6 +9,10 @@ from PIL import Image, ImageFile
 
 from torch.utils.data import Dataset
 from .dataset_util import *
+import yaml
+import os
+import matplotlib.pyplot as plt
+
 
 Image.MAX_IMAGE_PIXELS = None
 ImageFile.LOAD_TRUNCATED_IMAGES = True
@@ -301,3 +305,52 @@ class BaseDataset(Dataset):
         result_ids = np.insert(sampled_ids, 0, start_idx)
 
         return result_ids
+
+    def save_seq_stats(self, sequence_list, lengths, class_name, out_root="./stats"):
+        """
+        Save the sequence statistics to a yaml file and a png file.
+        
+        Args:
+            sequence_list: List of sequence names.
+            lengths: List of sequence lengths.
+            class_name: Name of the class.
+            out_root: Root directory to save the statistics.
+        
+        """
+        
+        out_dir = os.path.join(out_root, class_name)
+        os.makedirs(out_dir, exist_ok=True)
+
+        num_seqs = len(sequence_list)
+        avg_len = float(np.mean(lengths)) if num_seqs > 0 else 0.0
+        min_len = int(np.min(lengths)) if num_seqs > 0 else 0
+        max_len = int(np.max(lengths)) if num_seqs > 0 else 0
+
+        stats = {
+            "class_name": class_name,
+            "num_sequences": num_seqs,
+            "length_mean": round(avg_len, 2),
+            "length_min": min_len,
+            "length_max": max_len,
+        }
+
+        yaml_path = os.path.join(out_dir, "stats.yaml")
+        with open(yaml_path, "w") as f:
+            yaml.safe_dump(stats, f, sort_keys=False)
+
+        npz_path = os.path.join(out_dir, "lengths.npz")
+        np.savez_compressed(npz_path, lengths=lengths)
+
+        plt.figure(figsize=(8, 5))
+        plt.hist(lengths, bins="auto", color="skyblue", edgecolor="black", alpha=0.7)
+        plt.axvline(avg_len, color="red", linestyle="--", label=f"mean={avg_len:.2f}")
+        plt.title(f"{class_name} — Seq Length Distribution (N={num_seqs})")
+        plt.xlabel("Sequence length")
+        plt.ylabel("Count")
+        plt.legend()
+        fig_path = os.path.join(out_dir, "hist.png")
+        plt.tight_layout()
+        plt.savefig(fig_path)
+        plt.close()
+
+        return

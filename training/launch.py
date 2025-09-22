@@ -6,7 +6,7 @@
 
 import argparse
 from hydra import initialize, compose
-from omegaconf import DictConfig, OmegaConf
+from omegaconf import DictConfig, OmegaConf  # noqa: F401
 from trainer import Trainer
 
 
