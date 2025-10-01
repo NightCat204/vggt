@@ -9,17 +9,23 @@ import torch.nn as nn
 from huggingface_hub import PyTorchModelHubMixin  # used for model hub
 
 from vggt.models.aggregator import Aggregator
+from vggt.models.aggregator_1d import Aggregator_1d
 from vggt.heads.camera_head import CameraHead
 from vggt.heads.dpt_head import DPTHead
 from vggt.heads.track_head import TrackHead
 
 
 class VGGT(nn.Module, PyTorchModelHubMixin):
-    def __init__(self, img_size=518, patch_size=14, embed_dim=1024,
+    def __init__(self, img_size=518, patch_size=14, embed_dim=1024, use_1d=False,
                  enable_camera=True, enable_point=True, enable_depth=True, enable_track=True):
         super().__init__()
 
-        self.aggregator = Aggregator(img_size=img_size, patch_size=patch_size, embed_dim=embed_dim)
+        print(f"VGGT model initialized with img_size {img_size}, patch_size {patch_size}, embed_dim {embed_dim}, use_1d {use_1d}")
+
+        if use_1d:
+            self.aggregator = Aggregator_1d(img_size=img_size, patch_size=patch_size, embed_dim=embed_dim)
+        else:
+            self.aggregator = Aggregator(img_size=img_size, patch_size=patch_size, embed_dim=embed_dim)
 
         self.camera_head = CameraHead(dim_in=2 * embed_dim) if enable_camera else None
         self.point_head = DPTHead(dim_in=2 * embed_dim, output_dim=4, activation="inv_log", conf_activation="expp1") if enable_point else None
