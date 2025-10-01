@@ -316,3 +316,54 @@ def fov_aspect_from_K(K: np.ndarray, img_w: int, img_h: int) -> tuple[float, flo
     fov_y = 2.0 * np.arctan( (img_h * 0.5) / fy )
     aspect = float(img_w) / float(img_h)
     return fov_y, aspect
+
+def read_trajectory_file(filepath: str):
+    '''
+    read trajectory file in csv format
+    this is for ASE dataset
+    '''
+    def _transform_from_Rt(R, t):
+        M = np.identity(4)
+        M[:3, :3] = R
+        M[:3, 3] = t
+        return M
+
+    from scipy.spatial.transform import Rotation as R
+    def _read_trajectory_line(line):
+        line = line.rstrip().split(",")
+        pose = {}
+        pose["timestamp"] = int(line[1])
+        translation = np.array([float(p) for p in line[3:6]])
+        quat_xyzw = np.array([float(o) for o in line[6:10]])
+        rot_matrix = R.from_quat(quat_xyzw).as_matrix()
+        rot_matrix = np.array(rot_matrix)
+        pose["position"] = translation
+        pose["rotation"] = rot_matrix
+        pose["transform"] = _transform_from_Rt(rot_matrix, translation)
+
+        return pose
+
+    assert os.path.exists(filepath), f"Could not find trajectory file: {filepath}"
+    with open(filepath, "r") as f:
+        _ = f.readline()  # header
+        positions = []
+        rotations = []
+        transforms = []
+        timestamps = []
+        for line in f.readlines():
+            pose = _read_trajectory_line(line)
+            positions.append(pose["position"])
+            rotations.append(pose["rotation"])
+            transforms.append(pose["transform"])
+            timestamps.append(pose["timestamp"])
+        positions = np.stack(positions)
+        rotations = np.stack(rotations)
+        transforms = np.stack(transforms)
+        timestamps = np.array(timestamps)
+    print(f"Loaded trajectory with {len(timestamps)} device poses.")
+    return {
+        "ts": positions,
+        "Rs": rotations,
+        "Ts_world_from_device": transforms,
+        "timestamps": timestamps,
+    }

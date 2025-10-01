@@ -74,11 +74,6 @@ class MVSSynthDataset(BaseDataset):
 
         self.sequence_list = filtered_list
         self.sequence_list_len = len(self.sequence_list)
-        if self.sequence_list_len == 0:
-            logging.error(f"No valid sequences found in {self.MVSSynth_DIR} (min_num_images={self.min_num_images}). "
-                         f"Found directories: {len(sequence_list)}. Check path and num_images.json.")
-            raise ValueError(f"No valid sequences found in {self.MVSSynth_DIR}. "
-                           "Verify the dataset path, num_images.json, and min_num_images.")
         self.save_seq_stats(self.sequence_list, seq_lengths, self.__class__.__name__)
 
         status = "Training" if self.training else "Testing"
@@ -108,7 +103,7 @@ class MVSSynthDataset(BaseDataset):
         if len(img.shape) == 3:
             # Multi-channel image, take the first channel (Y channel)
             depth_map = img[..., 0]
-        elif len(img.shape) == 2:
+        elif len(img.shape) == 2: # in fact the exr just has one Y channel 
             # Single-channel image, use as is
             depth_map = img
         else:
@@ -179,7 +174,10 @@ class MVSSynthDataset(BaseDataset):
             extrinsic = np.array(pose_data['extrinsic'], dtype=np.float32)  # 4x4 matrix
 
             extri_opencv = extrinsic[:3, :]  # camera-from-world (OpenCV), 3x4
-            intri_opencv = np.array([[fx, 0, cx], [0, fy, cy], [0, 0, 1]], dtype=np.float32)
+            intri_opencv = np.array([
+                [fx, 0, cx], 
+                [0, fy, cy], 
+                [0, 0, 1]], dtype=np.float32)
 
             (
                 image,

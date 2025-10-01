@@ -181,7 +181,6 @@ class BaseDataset(Dataset):
         image, depth_map, intri_opencv, track = crop_image_depth_and_intrinsic_by_pp(
             image, depth_map, intri_opencv, aug_size, track=track, filepath=filepath,
         )
-
         original_size = np.array(image.shape[:2])  # update original_size
         target_shape = target_image_shape
 

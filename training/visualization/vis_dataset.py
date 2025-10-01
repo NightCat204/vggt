@@ -10,6 +10,13 @@ from hydra import initialize, compose
 from data.datasets.replica import ReplicaDataset
 from data.datasets.blendedmvs import BlendedMVSDataset
 from data.datasets.vkitti import VKittiDataset
+from data.datasets.wildrgbd import WildRGBDDataset
+from data.datasets.MVSSynth import MVSSynthDataset
+from data.datasets.ASE import ASEDataset
+from data.datasets.ADT import ADTDataset
+from data.datasets.mapillary import MapillaryDataset
+from data.datasets.megadepth import MegaDepthDataset
+from data.datasets.hypersim import HyperSimDataset
 
 
 def rotmat_to_wxyz(R_cw: np.ndarray) -> tuple[float, float, float, float]:
@@ -149,6 +156,13 @@ PATH_ROOT_DICT = {
     'replica': '/lustre/fsw/portfolios/nvr/projects/nvr_av_verifvalid/users/ymingli/datasets/Omnidata/omnidata_starter_dataset/camera_pose/replica/',
     'blendedmvs': '/lustre/fsw/portfolios/nvr/projects/nvr_av_verifvalid/users/ymingli/datasets/BlendedMVS/BlendedMVS',
     'vkitti': '/lustre/fsw/portfolios/nvr/projects/nvr_av_verifvalid/users/ymingli/datasets/vkitti',
+    'wildrgbd': '/lustre/fsw/portfolios/nvr/projects/nvr_av_verifvalid/users/ymingli/datasets/WildRGB-D',
+    'MVSSynth': '/lustre/fsw/portfolios/nvr/projects/nvr_av_verifvalid/users/ymingli/datasets/MVS-Synth/GTAV_720',
+    'ASE': '/lustre/fsw/portfolios/nvr/projects/nvr_av_verifvalid/users/ymingli/datasets/ASE',
+    'ADT': '/lustre/fsw/portfolios/nvr/projects/nvr_av_verifvalid/users/ymingli/datasets/ADT',
+    'mapillary': '/lustre/fsw/portfolios/nvr/projects/nvr_av_verifvalid/users/ymingli/datasets/Mapillary',
+    'megadepth': '/lustre/fsw/portfolios/nvr/projects/nvr_av_verifvalid/users/ymingli/datasets/MegaDepth/phoenix/S6/zl548/MegaDepth_v1',
+    'hypersim': '/lustre/fsw/portfolios/nvr/projects/nvr_av_verifvalid/users/ymingli/datasets/Omnidata/omnidata_starter_dataset/camera_pose/hypersim/',
 }
 
 def main():
@@ -159,7 +173,7 @@ def main():
     parser.add_argument("--port", type=int, default=8080)
     parser.add_argument("--show_frustum", action="store_true", default=True)
     parser.add_argument("--frustum_scale", type=float, default=0.25)
-    parser.add_argument("--dataset", type=str, default="vkitti")  # Change to your dataset
+    parser.add_argument("--dataset", type=str, default="hypersim")  # Change to your dataset
     args = parser.parse_args()
 
     with initialize(version_base=None, config_path="../config"):
@@ -189,6 +203,48 @@ def main():
             split="train",
             VKitti_DIR=PATH_ROOT_DICT[args.dataset],
         )
+    elif args.dataset == "wildrgbd":
+        ds = WildRGBDDataset(
+            common_conf=cfg.data.train.common_config,
+            split="train",
+            WILDRGBD_DIR=PATH_ROOT_DICT[args.dataset],
+        )
+    elif args.dataset == "MVSSynth":
+        ds = MVSSynthDataset(
+            common_conf=cfg.data.train.common_config,
+            split="train",
+            MVSSynth_DIR=PATH_ROOT_DICT[args.dataset],
+        )
+    elif args.dataset == "ASE":
+        ds = ASEDataset(
+            common_conf=cfg.data.train.common_config,
+            split="train",
+            ASE_DIR=PATH_ROOT_DICT[args.dataset],
+        )
+    elif args.dataset == "ADT":
+        ds = ADTDataset(
+            common_conf=cfg.data.train.common_config,
+            split="train",
+            ADT_DIR=PATH_ROOT_DICT[args.dataset],
+        )
+    elif args.dataset == "mapillary":
+        ds = MapillaryDataset(
+            common_conf=cfg.data.train.common_config,
+            split="train",
+            MAPILLARY_DIR=PATH_ROOT_DICT[args.dataset],
+        )
+    elif args.dataset == "megadepth":
+        ds = MegaDepthDataset(
+            common_conf=cfg.data.train.common_config,
+            split="train",
+            MEGADEPTH_DIR=PATH_ROOT_DICT[args.dataset],
+        )   
+    elif args.dataset == "hypersim":
+        ds = HyperSimDataset(
+            common_conf=cfg.data.train.common_config,
+            split="train",
+            CAMERA_POSE_ROOT=PATH_ROOT_DICT[args.dataset],
+        )   
     else:
         raise ValueError(f"Invalid dataset: {args.dataset}")
 
