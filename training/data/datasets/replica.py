@@ -62,7 +62,7 @@ class ReplicaDataset(BaseDataset):
         sequence_list = []
         seq_lengths = []
         pose_list_dict = {}
-        dists_npz_dict = {}
+        ranking_dict = {}
 
         for scene_dir in scene_dirs:
             pose_list = sorted(glob.glob(osp.join(scene_dir, "*.npz")))
@@ -75,9 +75,12 @@ class ReplicaDataset(BaseDataset):
                 sequence_list.append(scene_dir)
                 seq_lengths.append(len(pose_list))
                 pose_list_dict[scene_dir] = pose_list
-                dists_npz_dict[scene_dir] = np.load(dists_npz)
+                with np.load(dists_npz, allow_pickle=False) as z:
+                    r = z["ranking"].astype(np.int32, copy=True)  
+                r.setflags(write=False)       
+                ranking_dict[scene_dir] = r
 
-        self.dists_npz_dict = dists_npz_dict
+        self.ranking_dict = ranking_dict
         self.pose_list_dict = pose_list_dict
         self.sequence_list = sequence_list
         self.sequence_list_len = len(self.sequence_list)
@@ -108,8 +111,7 @@ class ReplicaDataset(BaseDataset):
         if num_images < 1:
             raise RuntimeError(f"No npz in scene_dir={scene_dir}")
 
-        sim_mat = self.dists_npz_dict[scene_dir]
-        ranking = sim_mat["ranking"]  # (N,N)
+        ranking = self.ranking_dict[scene_dir]
         # dists   = sim_mat["dists"]    # (N,N)
         assert ranking.shape[0] == num_images, f"ranking rows != num_images ({ranking.shape[0]} vs {num_images})"
 
