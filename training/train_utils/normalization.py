@@ -104,7 +104,7 @@ def normalize_camera_extrinsics_and_points_batch(
 
 
         new_world_points = new_world_points / avg_scale.view(-1, 1, 1, 1, 1)
-         [:, :, :3, 3] = new_extrinsics[:, :, :3, 3] / avg_scale.view(-1, 1, 1)
+        new_extrinsics[:, :, :3, 3] = new_extrinsics[:, :, :3, 3] / avg_scale.view(-1, 1, 1)
         if depths is not None:
             new_depths = new_depths / avg_scale.view(-1, 1, 1, 1)
         if cam_points is not None:

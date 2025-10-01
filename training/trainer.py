@@ -154,12 +154,15 @@ class Trainer:
             self.optims = construct_optimizers(self.model, self.optim_conf)
 
         # Load checkpoint if available or specified
-        if self.checkpoint_conf.resume_checkpoint_path is not None:
-            self._load_resuming_checkpoint(self.checkpoint_conf.resume_checkpoint_path)
-        else:   
-            ckpt_path = get_resume_checkpoint(self.checkpoint_conf.save_dir)
-            if ckpt_path is not None:
-                self._load_resuming_checkpoint(ckpt_path)
+        if self.checkpoint_conf.resume_pretrained:
+            if self.checkpoint_conf.resume_checkpoint_path is not None:
+                self._load_resuming_checkpoint(self.checkpoint_conf.resume_checkpoint_path)
+            else:   
+                ckpt_path = get_resume_checkpoint(self.checkpoint_conf.save_dir)
+                if ckpt_path is not None:
+                    self._load_resuming_checkpoint(ckpt_path)
+        # else:
+            # logging.info("Not resuming from checkpoint")
 
         # Wrap the model with DDP
         self._setup_ddp_distributed_training(distributed, device)

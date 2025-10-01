@@ -110,12 +110,12 @@ class ReplicaDataset(BaseDataset):
 
         sim_mat = self.dists_npz_dict[scene_dir]
         ranking = sim_mat["ranking"]  # (N,N)
-        dists   = sim_mat["dists"]    # (N,N)
+        # dists   = sim_mat["dists"]    # (N,N)
         assert ranking.shape[0] == num_images, f"ranking rows != num_images ({ranking.shape[0]} vs {num_images})"
 
 
         anchor_idx = random.randint(0, num_images - 1)
-        print(f"anchor_idx = {anchor_idx}")
+        # print(f"anchor_idx = {anchor_idx}")
         order = ranking[anchor_idx].tolist()
         order = [i for i in order if i != anchor_idx]
         topK  = order[:min(127, len(order))]
@@ -135,8 +135,8 @@ class ReplicaDataset(BaseDataset):
             rgb_path = map_paths(npz_path, "npz_cam", "rgb")
             depth_path = map_paths(npz_path, "npz_cam", "depth")
 
-            print(f"rgb_path = {rgb_path}")
-            print(f"depth_path = {depth_path}")
+            # print(f"rgb_path = {rgb_path}")
+            # print(f"depth_path = {depth_path}")
 
             image = read_image_cv2(rgb_path) 
             depth_map = cv2.imread(depth_path, cv2.IMREAD_UNCHANGED).astype(np.float32) / 512.0
@@ -188,7 +188,7 @@ class ReplicaDataset(BaseDataset):
         set_name = "replica"
         batch = {
             "seq_name": set_name + "_" + Path(scene_dir).name,
-            "ids": ids,
+            "ids": np.array(ids),
             "frame_num": len(extrinsics),
             "images": images,
             "depths": depths,

@@ -28,10 +28,16 @@ data:
     dataset:
       _target_: data.composed_dataset.ComposedDataset
       dataset_configs:
-        - _target_: data.datasets.co3d.Co3dDataset
+        - _target_: data.datasets.vkitti.VKittiDataset
           split: train
-          CO3D_DIR: /YOUR/PATH/TO/CO3D
-          CO3D_ANNOTATION_DIR: /YOUR/PATH/TO/CO3D_ANNOTATION
+          VKitti_DIR: /lustre/fsw/portfolios/nvr/projects/nvr_av_verifvalid/users/ymingli/datasets/vkitti
+          len_train: 100000
+          expand_ratio: 8 
+        - _target_: data.datasets.replica.ReplicaDataset
+          split: train
+          CAMERA_POSE_ROOT: /lustre/fsw/portfolios/nvr/projects/nvr_av_verifvalid/users/ymingli/datasets/Omnidata/omnidata_starter_dataset/camera_pose/replica/
+          len_train: 100000
+          expand_ratio: 8 
   val:
     _target_: data.dynamic_dataloader.DynamicTorchDataset
     num_workers: ${num_workers}
@@ -43,10 +49,11 @@ data:
     dataset:
       _target_: data.composed_dataset.ComposedDataset
       dataset_configs:
-        - _target_: data.datasets.co3d.Co3dDataset
-          split: test
-          CO3D_DIR: /YOUR/PATH/TO/CO3D
-          CO3D_ANNOTATION_DIR: /YOUR/PATH/TO/CO3D_ANNOTATION
+        - _target_: data.datasets.vkitti.VKittiDataset
+          split: train
+          VKitti_DIR: /lustre/fsw/portfolios/nvr/projects/nvr_av_verifvalid/users/ymingli/datasets/vkitti
+          len_train: 100000
+          expand_ratio: 8 
 
 
 logging:
@@ -86,6 +93,7 @@ logging:
 checkpoint:
   save_dir: logs/${exp_name}/ckpts
   save_freq: 5
+  resume_pretrained: False
   resume_checkpoint_path: /YOUR/PATH/TO/CKPT
   strict: False
 
@@ -95,10 +103,10 @@ loss:
   camera: 
     weight: 5.0
     loss_type: "l1" # The paper uses smooth l1 loss, but we found l1 loss is more stable than smooth l1 and l2 loss.  
-  depth:
-    weight: 1.0
-    gradient_loss_fn: "grad" 
-    valid_range: 0.98
+  depth: null
+    # weight: 1.0
+    # gradient_loss_fn: "grad" 
+    # valid_range: 0.98
   point: null
   # If you want to enable point, use the following config
   # point: 
@@ -118,8 +126,9 @@ optim:
     lr: 5e-5
     weight_decay: 0.05
 
-  frozen_module_names:
-      - "*aggregator*"  # example, freeze the aggregator
+  frozen_module_names: null
+      # - "*aggregator*"  # example, freeze the aggregator
+
 
   amp:
     enabled: True
@@ -162,7 +171,7 @@ max_epochs: 20
 model:
   _target_: vggt.models.vggt.VGGT
   enable_camera: True
-  enable_depth: True
+  enable_depth: False
   enable_point: False
   enable_track: False
 
