@@ -24,7 +24,7 @@ from typing import Mapping, Text, Tuple
 
 import torch
 from einops import rearrange
-from accelerate.utils.operations import gather
+# from accelerate.utils.operations import gather
 from torch.cuda.amp import autocast
 
 class VectorQuantizer(torch.nn.Module):

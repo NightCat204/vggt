@@ -7,7 +7,7 @@ import cv2
 import viser
 from pathlib import Path
 from hydra import initialize, compose
-from data.datasets.replica import ReplicaDataset
+from data.datasets.Omnidata import OmniDataset
 from data.datasets.blendedmvs import BlendedMVSDataset
 from data.datasets.vkitti import VKittiDataset
 from data.datasets.wildrgbd import WildRGBDDataset
@@ -16,7 +16,6 @@ from data.datasets.ASE import ASEDataset
 from data.datasets.ADT import ADTDataset
 from data.datasets.mapillary import MapillaryDataset
 from data.datasets.megadepth import MegaDepthDataset
-from data.datasets.hypersim import HyperSimDataset
 
 
 def rotmat_to_wxyz(R_cw: np.ndarray) -> tuple[float, float, float, float]:
@@ -179,16 +178,7 @@ def main():
     with initialize(version_base=None, config_path="../config"):
         cfg = compose(config_name="default")
 
-    if args.dataset == "replica":
-        ds = ReplicaDataset(
-            common_conf=cfg.data.train.common_config,
-            split="train",
-            CAMERA_POSE_ROOT=PATH_ROOT_DICT[args.dataset],
-            min_num_images=24,
-            len_train=100000,
-            len_test=10000,
-        )
-    elif args.dataset == "blendedmvs":
+    if args.dataset == "blendedmvs":
         ds = BlendedMVSDataset(
             common_conf=cfg.data.train.common_config,
             split="train",
@@ -239,8 +229,8 @@ def main():
             split="train",
             MEGADEPTH_DIR=PATH_ROOT_DICT[args.dataset],
         )   
-    elif args.dataset == "hypersim":
-        ds = HyperSimDataset(
+    elif args.dataset in ["hypersim", "replica"]:
+        ds = OmniDataset(
             common_conf=cfg.data.train.common_config,
             split="train",
             CAMERA_POSE_ROOT=PATH_ROOT_DICT[args.dataset],

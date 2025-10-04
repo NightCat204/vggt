@@ -15,7 +15,7 @@ from vggt.layers import PatchEmbed
 from vggt.layers.block import Block
 from vggt.layers.rope import RotaryPositionEmbedding2D, PositionGetter
 from vggt.layers.vision_transformer import vit_small, vit_base, vit_large, vit_giant2
-from tokenizer import TiTok
+from vggt.models.tokenizer import TiTok
 
 logger = logging.getLogger(__name__)
 
@@ -53,6 +53,7 @@ class Aggregator_1d(nn.Module):
     def __init__(
         self,
         img_size=256,
+        patch_size=16,
         embed_dim=1024,
         depth=24,
         num_heads=16,
@@ -63,7 +64,7 @@ class Aggregator_1d(nn.Module):
         qkv_bias=True,
         proj_bias=True,
         ffn_bias=True,
-        patch_embed="large",
+        model_size="large",
         aa_order=["frame", "global"],
         aa_block_size=1,
         qk_norm=True,
@@ -72,7 +73,7 @@ class Aggregator_1d(nn.Module):
     ):
         super().__init__()
 
-        self.__build_patch_embed__(patch_embed, img_size, num_register_tokens, num_latent_tokens)
+        self.__build_patch_embed__(img_size, patch_size, model_size, num_register_tokens, num_latent_tokens)
 
         # Initialize rotary position embedding if frequency > 0
         self.rope = RotaryPositionEmbedding2D(frequency=rope_freq) if rope_freq > 0 else None
@@ -143,14 +144,16 @@ class Aggregator_1d(nn.Module):
 
     def __build_patch_embed__(
         self,
-        img_size,
+        image_size,
         patch_size,
+        model_size,
         num_register_tokens,
         num_latent_tokens
     ):
         self.patch_embed = TiTok(
-            img_size=img_size,
+            image_size=image_size,
             patch_size=patch_size,
+            model_size=model_size,
             num_register_tokens=num_register_tokens,
             num_latent_tokens=num_latent_tokens
         )

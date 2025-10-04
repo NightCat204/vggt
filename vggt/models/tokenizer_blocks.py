@@ -26,7 +26,7 @@ from torch.utils.checkpoint import checkpoint
 from collections import OrderedDict
 import einops
 from einops.layers.torch import Rearrange
-
+import sys
 
 def modulate(x, shift, scale):
     return x * (1 + scale) + shift
@@ -217,7 +217,9 @@ class TiTokEncoder(nn.Module):
                  num_latent_tokens: int = 32,
                  token_size: int = 12,
                  quantize_mode: str = "vq",
-                 is_legacy: bool = True
+                 is_legacy: bool = True,
+                 interpolate_offset: float = 0.0,
+                 interpolate_antialias: bool = True
                  ):
         super().__init__()
         self.image_size = image_size
@@ -227,6 +229,8 @@ class TiTokEncoder(nn.Module):
         self.num_latent_tokens = num_latent_tokens
         self.num_register_tokens = num_register_tokens
         self.token_size = token_size
+        self.interpolate_offset = interpolate_offset
+        self.interpolate_antialias = interpolate_antialias
 
         if quantize_mode == "vae":
             self.token_size = self.token_size * 2 # needs to split into mean and std
@@ -256,13 +260,15 @@ class TiTokEncoder(nn.Module):
               kernel_size=self.patch_size, stride=self.patch_size, bias=True)
         
         self.register_tokens = (
-            nn.Parameter(torch.zeros(1, num_register_tokens, self.width)) if num_register_tokens else None
+            nn.Parameter(torch.zeros(num_register_tokens, self.width)) if num_register_tokens else None
         )
         
         scale = self.width ** -0.5
+        
         self.class_embedding = nn.Parameter(scale * torch.randn(1, self.width))
-        self.positional_embedding = nn.Parameter(
-                scale * torch.randn(self.grid_size ** 2 + 1, self.width))
+
+        self.pos_embed = nn.Parameter(
+                scale * torch.randn(1, self.grid_size ** 2 + 1, self.width))
         self.latent_token_positional_embedding = nn.Parameter(
             scale * torch.randn(self.num_latent_tokens, self.width))
         self.ln_pre = nn.LayerNorm(self.width)
@@ -272,17 +278,52 @@ class TiTokEncoder(nn.Module):
                 self.width, self.num_heads, mlp_ratio=4.0
             ))
         self.ln_post = nn.LayerNorm(self.width)
-        self.conv_out = nn.Conv2d(self.width, self.token_size, kernel_size=1, bias=True)
+        # self.conv_out = nn.Conv2d(self.width, self.token_size, kernel_size=1, bias=True)
+
+    def interpolate_pos_encoding(self, x, w, h):
+        previous_dtype = x.dtype
+        npatch = x.shape[1] - 1
+        N = self.pos_embed.shape[1] - 1
+        if npatch == N and w == h:
+            return self.pos_embed
+        pos_embed = self.pos_embed.float()
+        class_pos_embed = pos_embed[:, 0]
+        patch_pos_embed = pos_embed[:, 1:]
+        dim = x.shape[-1]
+        w0 = w // self.patch_size
+        h0 = h // self.patch_size
+        M = int(math.sqrt(N))  # Recover the number of patches in each dimension
+        assert N == M * M
+        kwargs = {}
+        if self.interpolate_offset:
+            # Historical kludge: add a small number to avoid floating point error in the interpolation, see https://github.com/facebookresearch/dino/issues/8
+            # Note: still needed for backward-compatibility, the underlying operators are using both output size and scale factors
+            sx = float(w0 + self.interpolate_offset) / M
+            sy = float(h0 + self.interpolate_offset) / M
+            kwargs["scale_factor"] = (sx, sy)
+        else:
+            # Simply specify an output size instead of a scale factor
+            kwargs["size"] = (w0, h0)
+        patch_pos_embed = nn.functional.interpolate(
+            patch_pos_embed.reshape(1, M, M, dim).permute(0, 3, 1, 2),
+            mode="bicubic",
+            antialias=self.interpolate_antialias,
+            **kwargs,
+        )
+        assert (w0, h0) == patch_pos_embed.shape[-2:]
+        patch_pos_embed = patch_pos_embed.permute(0, 2, 3, 1).view(1, -1, dim)
+        return torch.cat((class_pos_embed.unsqueeze(0), patch_pos_embed), dim=1).to(previous_dtype)
 
     def forward(self, pixel_values, latent_tokens):
-        batch_size = pixel_values.shape[0]
         x = pixel_values
+        batch_size, _, w, h = x.shape
         x = self.patch_embed(x)
         x = x.reshape(x.shape[0], x.shape[1], -1)
         x = x.permute(0, 2, 1) # shape = [*, grid ** 2, width]
         # class embeddings and positional embeddings
+
         x = torch.cat([_expand_token(self.class_embedding, x.shape[0]).to(x.dtype), x], dim=1)
-        x = x + self.positional_embedding.to(x.dtype) # shape = [*, grid ** 2 + 1, width]
+        x = x + self.interpolate_pos_encoding(x, w, h)
 
         latent_tokens = _expand_token(latent_tokens, x.shape[0]).to(x.dtype)
         latent_tokens = latent_tokens + self.latent_token_positional_embedding.to(x.dtype)
@@ -297,7 +338,7 @@ class TiTokEncoder(nn.Module):
             x = self.transformer[i](x)
         x = x.permute(1, 0, 2)  # LND -> NLD
         
-        latent_tokens = x[:, 1+self.grid_size**2+self.num_register_tokens:]
+        latent_tokens = x[:, -(self.num_latent_tokens):]  # only return the latent tokens
         latent_tokens = self.ln_post(latent_tokens)
         # fake 2D shape
         if self.is_legacy:

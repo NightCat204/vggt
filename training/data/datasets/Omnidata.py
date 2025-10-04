@@ -16,10 +16,11 @@ from hydra import initialize, compose
 
 
 
-class ReplicaDataset(BaseDataset):
+class OmniDataset(BaseDataset):
     """
     Root Path Example:
         CAMERA_POSE_ROOT = /lustre/.../Omnidata/omnidata_starter_dataset/camera_pose/replica/
+        CAMERA_POSE_ROOT = /lustre/.../Omnidata/omnidata_starter_dataset/camera_pose/hypersim/
     Sequence Structure:
         camera_pose/replica/<scene>/*.npz
         rgb/replica/<scene>/*.png
@@ -54,8 +55,10 @@ class ReplicaDataset(BaseDataset):
             self.len_train = len_test
         else:
             raise ValueError(f"Invalid split: {split}")
+
+        self.dataset_name = CAMERA_POSE_ROOT.split("/")[-2]
             
-        logging.info(f"Replica CAMERA_POSE_ROOT = {self.CAMERA_POSE_ROOT}")
+        logging.info(f"{self.dataset_name} CAMERA_POSE_ROOT = {self.CAMERA_POSE_ROOT}")
 
         scene_dirs = [p for p in glob.glob(osp.join(self.CAMERA_POSE_ROOT, "*")) if osp.isdir(p)]
         scene_dirs = sorted(scene_dirs)
@@ -89,8 +92,8 @@ class ReplicaDataset(BaseDataset):
         self.depth_max = 80
 
         status = "Training" if self.training else "Testing"
-        logging.info(f"{status}: Replica scene count: {self.sequence_list_len}")
-        logging.info(f"{status}: Replica dataset length: {len(self)}")
+        logging.info(f"{status}: {self.dataset_name} scene count: {self.sequence_list_len}")
+        logging.info(f"{status}: {self.dataset_name} dataset length: {len(self)}")
 
 
     def get_data(
@@ -187,9 +190,8 @@ class ReplicaDataset(BaseDataset):
             point_masks.append(point_mask)
             original_sizes.append(original_size)
 
-        set_name = "replica"
         batch = {
-            "seq_name": set_name + "_" + Path(scene_dir).name,
+            "seq_name": self.dataset_name + "_" + Path(scene_dir).name,
             "ids": np.array(ids),
             "frame_num": len(extrinsics),
             "images": images,
@@ -206,5 +208,5 @@ class ReplicaDataset(BaseDataset):
 if __name__ == "__main__":
     with initialize(version_base=None, config_path="../../config"):
         cfg = compose(config_name="default")
-    dataset = ReplicaDataset(common_conf=cfg.data.train.common_config, split="train", CAMERA_POSE_ROOT="/lustre/fsw/portfolios/nvr/projects/nvr_av_verifvalid/users/ymingli/datasets/Omnidata/omnidata_starter_dataset/camera_pose/replica/")
+    dataset = OmniDataset(common_conf=cfg.data.train.common_config, split="train", CAMERA_POSE_ROOT="/lustre/fsw/portfolios/nvr/projects/nvr_av_verifvalid/users/ymingli/datasets/Omnidata/omnidata_starter_dataset/camera_pose/replica/")
     dataset[(0, 128, 1.0)]

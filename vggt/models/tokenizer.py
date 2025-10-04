@@ -2,8 +2,8 @@ import torch
 import torch.nn as nn
 from einops import rearrange
 
-from tokenizer_blocks import TiTokEncoder, TiTokDecoder
-from tokenizer_quantizer import VectorQuantizer, DiagonalGaussianDistribution
+from vggt.models.tokenizer_blocks import TiTokEncoder, TiTokDecoder
+from vggt.models.tokenizer_quantizer import VectorQuantizer, DiagonalGaussianDistribution
 import json
 from omegaconf import OmegaConf
 from pathlib import Path
@@ -156,7 +156,7 @@ class TiTok(BaseModel, PyTorchModelHubMixin, tags=["arxiv:2406.07550", "image-to
             image_size=image_size,
             patch_size=patch_size,
             model_size=model_size,
-            num_lantent_tokens=num_latent_tokens,
+            num_latent_tokens=num_latent_tokens,
             num_register_tokens=num_register_tokens,
             token_size=token_size,
             quantize_mode=quantize_mode)
@@ -169,16 +169,16 @@ class TiTok(BaseModel, PyTorchModelHubMixin, tags=["arxiv:2406.07550", "image-to
         
         self.apply(self._init_weights)
 
-        if self.quantize_mode == "vq":
-            self.quantize = VectorQuantizer(
-                codebook_size=codebook_size,
-                token_size=token_size,
-                commitment_cost=commitment_cost,
-                use_l2_norm=use_l2_norm)
-        elif self.quantize_mode == "vae":
-            self.quantize = DiagonalGaussianDistribution
-        else:
-            raise NotImplementedError
+        # if self.quantize_mode == "vq":
+        #     self.quantize = VectorQuantizer(
+        #         codebook_size=codebook_size,
+        #         token_size=token_size,
+        #         commitment_cost=commitment_cost,
+        #         use_l2_norm=use_l2_norm)
+        # elif self.quantize_mode == "vae":
+        #     self.quantize = DiagonalGaussianDistribution
+        # else:
+        #     raise NotImplementedError
 
     def _init_weights(self, module):
         """ Initialize the weights.
