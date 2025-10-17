@@ -3,7 +3,7 @@ defaults:
 
 exp_name: vggt_1d_not_full_dataset_dry_run
 img_size: 256
-num_workers: 8
+num_workers: 1
 seed_value: 42
 accum_steps: 1   # We did not use gradient accumulation in our training, while if you suffer from OOM, you can try to use it.
 patch_size: 16
@@ -31,58 +31,64 @@ data:
 
         - _target_: data.datasets.vkitti.VKittiDataset
           split: train
+          VKitti_DIR: /home/solution/Documents/Projects/Dataset/vkitti
+          len_train: 100000
+          expand_ratio: 8 
+
+        - _target_: data.datasets.vkitti.VKittiDataset
+          split: train
           VKitti_DIR: /lustre/fsw/portfolios/nvr/projects/nvr_av_verifvalid/users/ymingli/datasets/vkitti
           len_train: 100000
           expand_ratio: 8 
 
-        # - _target_: data.datasets.MVSSynth.MVSSynthDataset
-        #   split: train
-        #   MVSSynth_DIR: /lustre/fsw/portfolios/nvr/projects/nvr_av_verifvalid/users/ymingli/datasets/MVS-Synth/GTAV_720
-        #   len_train: 100000
-        #   expand_ratio: 8 
+        - _target_: data.datasets.MVSSynth.MVSSynthDataset
+          split: train
+          MVSSynth_DIR: /lustre/fsw/portfolios/nvr/projects/nvr_av_verifvalid/users/ymingli/datasets/MVS-Synth/GTAV_720
+          len_train: 100000
+          expand_ratio: 8 
 
-        # # ASE
-        # - _target_: data.datasets.ASE.ASEDataset
-        #   split: train
-        #   ASE_DIR: /lustre/fsw/portfolios/nvr/projects/nvr_av_verifvalid/users/ymingli/datasets/ASE
-        #   len_train: 100000
-        #   expand_ratio: 8
+        # ASE
+        - _target_: data.datasets.ASE.ASEDataset
+          split: train
+          ASE_DIR: /lustre/fsw/portfolios/nvr/projects/nvr_av_verifvalid/users/ymingli/datasets/ASE
+          len_train: 100000
+          expand_ratio: 8
 
 
-        # # DL3DV
-        # - _target_: data.datasets.DL3DV.DL3DVDataset
-        #   split: train
-        #   DL3DV_DIR: /lustre/fsw/portfolios/nvr/projects/nvr_av_verifvalid/users/ymingli/datasets/DL3DV-ALL-960P/DL3DV
-        #   len_train: 100000
-        #   expand_ratio: 8
+        # DL3DV
+        - _target_: data.datasets.DL3DV.DL3DVDataset
+          split: train
+          DL3DV_DIR: /lustre/fsw/portfolios/nvr/projects/nvr_av_verifvalid/users/ymingli/datasets/DL3DV-ALL-960P/DL3DV
+          len_train: 100000
+          expand_ratio: 8
 
-        # # Mapillary
-        # - _target_: data.datasets.mapillary.MapillaryDataset
-        #   split: train
-        #   MAPILLARY_DIR: /lustre/fsw/portfolios/nvr/projects/nvr_av_verifvalid/users/ymingli/datasets/Mapillary
-        #   len_train: 100000
-        #   expand_ratio: 8
+        # Mapillary
+        - _target_: data.datasets.mapillary.MapillaryDataset
+          split: train
+          MAPILLARY_DIR: /lustre/fsw/portfolios/nvr/projects/nvr_av_verifvalid/users/ymingli/datasets/Mapillary
+          len_train: 100000
+          expand_ratio: 8
 
-        # # Omnidata HyperSim
-        # - _target_: data.datasets.Omnidata.OmniDataset
-        #   split: train
-        #   CAMERA_POSE_ROOT: /lustre/fsw/portfolios/nvr/projects/nvr_av_verifvalid/users/ymingli/datasets/Omnidata/omnidata_starter_dataset/camera_pose/hypersim
-        #   len_train: 100000
-        #   expand_ratio: 8
+        # Omnidata HyperSim
+        - _target_: data.datasets.Omnidata.OmniDataset
+          split: train
+          CAMERA_POSE_ROOT: /lustre/fsw/portfolios/nvr/projects/nvr_av_verifvalid/users/ymingli/datasets/Omnidata/omnidata_starter_dataset/camera_pose/hypersim
+          len_train: 100000
+          expand_ratio: 8
 
-        # # Omnidata Replica
-        # - _target_: data.datasets.Omnidata.OmniDataset
-        #   split: train
-        #   CAMERA_POSE_ROOT: /lustre/fsw/portfolios/nvr/projects/nvr_av_verifvalid/users/ymingli/datasets/Omnidata/omnidata_starter_dataset/camera_pose/replica
-        #   len_train: 100000
-        #   expand_ratio: 8
+        # Omnidata Replica
+        - _target_: data.datasets.Omnidata.OmniDataset
+          split: train
+          CAMERA_POSE_ROOT: /lustre/fsw/portfolios/nvr/projects/nvr_av_verifvalid/users/ymingli/datasets/Omnidata/omnidata_starter_dataset/camera_pose/replica
+          len_train: 100000
+          expand_ratio: 8
 
-        # # WildRGBD
-        # - _target_: data.datasets.wildrgbd.WildRGBDDataset
-        #   split: train
-        #   WILDRGBD_DIR: /lustre/fsw/portfolios/nvr/projects/nvr_av_verifvalid/users/ymingli/datasets/WildRGB-D
-        #   len_train: 100000
-        #   expand_ratio: 8
+        # WildRGBD
+        - _target_: data.datasets.wildrgbd.WildRGBDDataset
+          split: train
+          WILDRGBD_DIR: /lustre/fsw/portfolios/nvr/projects/nvr_av_verifvalid/users/ymingli/datasets/WildRGB-D
+          len_train: 100000
+          expand_ratio: 8
 
 
         # ADT Slow
@@ -141,9 +147,14 @@ data:
       dataset_configs:
         - _target_: data.datasets.vkitti.VKittiDataset
           split: train
-          VKitti_DIR: /lustre/fsw/portfolios/nvr/projects/nvr_av_verifvalid/users/ymingli/datasets/vkitti
-          len_train: 100000
+          VKitti_DIR: /home/solution/Documents/Projects/Dataset/vkitti
+          len_train: 10
           expand_ratio: 8 
+        # - _target_: data.datasets.vkitti.VKittiDataset
+        #   split: train
+        #   VKitti_DIR: /lustre/fsw/portfolios/nvr/projects/nvr_av_verifvalid/users/ymingli/datasets/vkitti
+        #   len_train: 100000
+        #   expand_ratio: 8 
 
 
 logging:
@@ -184,7 +195,7 @@ checkpoint:
   save_dir: logs/${exp_name}/ckpts
   save_freq: 5
   # resume_pretrained: False
-  resume_checkpoint_path: null
+  resume_checkpoint_path: /home/solution/Documents/Projects/3DV/titok/tokenizer_titok_l32.bin
   strict: False
 
 

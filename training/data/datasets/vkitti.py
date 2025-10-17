@@ -12,10 +12,11 @@ import glob
 
 import cv2
 import numpy as np
+from sympy import sequence
 
 from data.dataset_util import *
 from data.base_dataset import BaseDataset
-
+import ipdb
 
 class VKittiDataset(BaseDataset):
     def __init__(
@@ -64,18 +65,18 @@ class VKittiDataset(BaseDataset):
 
         # Load or generate sequence list
         txt_path = osp.join(self.VKitti_DIR, "sequence_list.txt")
-        if osp.exists(txt_path):
-            with open(txt_path, 'r') as f:
-                sequence_list = [line.strip() for line in f.readlines()]
-        else:
-            # Generate sequence list and save to txt            
-            sequence_list = glob.glob(osp.join(self.VKitti_DIR, "*/*/*/rgb/*"))            
-            sequence_list = [file_path.split(self.VKitti_DIR)[-1].lstrip('/') for file_path in sequence_list]
-            sequence_list = sorted(sequence_list)
+        # if osp.exists(txt_path):
+        #     with open(txt_path, 'r') as f:
+        #         sequence_list = [line.strip() for line in f.readlines()]
+        # else:
+        # Generate sequence list and save to txt            
+        sequence_list = glob.glob(osp.join(self.VKitti_DIR, "*/*/*/rgb/*"))            
+        sequence_list = [file_path.split(self.VKitti_DIR)[-1].lstrip('/') for file_path in sequence_list]
+        sequence_list = sorted(sequence_list)
 
-            # Save to txt file
-            with open(txt_path, 'w') as f:
-                f.write('\n'.join(sequence_list))
+        # Save to txt file
+        with open(txt_path, 'w') as f:
+            f.write('\n'.join(sequence_list))
 
         self.sequence_list = sequence_list
         self.sequence_list_len = len(self.sequence_list)
@@ -107,6 +108,7 @@ class VKittiDataset(BaseDataset):
         Returns:
             dict: A batch of data including images, depths, and other metadata.
         """
+
         if self.inside_random and self.training:
             seq_index = random.randint(0, self.sequence_list_len - 1)
 

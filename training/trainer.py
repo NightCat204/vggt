@@ -17,7 +17,7 @@ os.environ["HYDRA_FULL_ERROR"] = "1"
 # Enables asynchronous error handling for NCCL, which can prevent hangs.
 os.environ["NCCL_ASYNC_ERROR_HANDLING"] = "1"
 
-
+import ipdb
 import contextlib
 import gc
 import json
@@ -67,7 +67,7 @@ class Trainer:
         checkpoint: Dict[str, Any],
         max_epochs: int,
         mode: str = "train",
-        device: str = "cpu",
+        device: str = "cuda",
         seed_value: int = 123,
         val_epoch_freq: int = 1,
         distributed: Dict[str, bool] = None,
@@ -156,12 +156,13 @@ class Trainer:
             self.optims = construct_optimizers(self.model, self.optim_conf)
 
         # Load checkpoint if available or specified
-        if self.checkpoint_conf.resume_checkpoint_path is not None:
+        ckpt_path = get_resume_checkpoint(self.checkpoint_conf.save_dir)
+        if ckpt_path is not None:
+            self._load_resuming_checkpoint(ckpt_path)
+        elif self.checkpoint_conf.resume_checkpoint_path is not None:
             self._load_resuming_checkpoint(self.checkpoint_conf.resume_checkpoint_path)
-        else:   
-            ckpt_path = get_resume_checkpoint(self.checkpoint_conf.save_dir)
-            if ckpt_path is not None:
-                self._load_resuming_checkpoint(ckpt_path)
+        else: 
+            logging.info("Not loaded checkpoint")
 
         # Wrap the model with DDP
         self._setup_ddp_distributed_training(distributed, device)
@@ -215,19 +216,27 @@ class Trainer:
 
         with g_pathmgr.open(ckpt_path, "rb") as f:
             checkpoint = torch.load(f, map_location="cpu")
-        
-        # Load model state
-        model_state_dict = checkpoint["model"] if "model" in checkpoint else checkpoint
-        missing, unexpected = self.model.load_state_dict(
-            model_state_dict, strict=self.checkpoint_conf.strict
-        )
-        if self.rank == 0:
-            logging.info(f"Model state loaded. Missing keys: {missing or 'None'}. Unexpected keys: {unexpected or 'None'}.")
+
+        # ipdb.set_trace()
+        if 'titok' in ckpt_path:
+            missing, unexpected = self.model.aggregator.patch_embed.load_state_dict(
+                checkpoint, strict=self.checkpoint_conf.strict
+            )
+            if self.rank == 0:
+                logging.info(f"Model state loaded. Missing keys: {missing or 'None'}.")
+        else:
+            # Load model state
+            model_state_dict = checkpoint["model"] if "model" in checkpoint else checkpoint
+            missing, unexpected = self.model.load_state_dict(
+                model_state_dict, strict=self.checkpoint_conf.strict
+            )
+            if self.rank == 0:
+                logging.info(f"Model state loaded. Missing keys: {missing or 'None'}. Unexpected keys: {unexpected or 'None'}.")
 
         # Load optimizer state if available and in training mode
         if "optimizer" in checkpoint:
             logging.info(f"Loading optimizer state dict (rank {self.rank})")
-            self.optims.optimizer.load_state_dict(checkpoint["optimizer"])
+            self.optims[0].optimizer.load_state_dict(checkpoint["optimizer"])
 
         # Load training progress
         if "epoch" in checkpoint:
