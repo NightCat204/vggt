@@ -41,6 +41,7 @@ from train_utils.general import *
 from train_utils.logging import setup_logging
 from train_utils.normalization import normalize_camera_extrinsics_and_points_batch
 from train_utils.optimizer import construct_optimizers
+import wandb
 
 
 class Trainer:
@@ -66,7 +67,7 @@ class Trainer:
         checkpoint: Dict[str, Any],
         max_epochs: int,
         mode: str = "train",
-        device: str = "cuda",
+        device: str = "cpu",
         seed_value: int = 123,
         val_epoch_freq: int = 1,
         distributed: Dict[str, bool] = None,
@@ -101,6 +102,7 @@ class Trainer:
             env_variables: Dictionary of environment variables to set.
             accum_steps: Number of steps to accumulate gradients before an optimizer step.
         """
+
         self._setup_env_variables(env_variables)
         self._setup_timers()
 
@@ -154,21 +156,30 @@ class Trainer:
             self.optims = construct_optimizers(self.model, self.optim_conf)
 
         # Load checkpoint if available or specified
-        if self.checkpoint_conf.resume_pretrained:
-            if self.checkpoint_conf.resume_checkpoint_path is not None:
-                self._load_resuming_checkpoint(self.checkpoint_conf.resume_checkpoint_path)
-            else:   
-                ckpt_path = get_resume_checkpoint(self.checkpoint_conf.save_dir)
-                if ckpt_path is not None:
-                    self._load_resuming_checkpoint(ckpt_path)
-        # else:
-            # logging.info("Not resuming from checkpoint")
+        if self.checkpoint_conf.resume_checkpoint_path is not None:
+            self._load_resuming_checkpoint(self.checkpoint_conf.resume_checkpoint_path)
+        else:   
+            ckpt_path = get_resume_checkpoint(self.checkpoint_conf.save_dir)
+            if ckpt_path is not None:
+                self._load_resuming_checkpoint(ckpt_path)
 
         # Wrap the model with DDP
         self._setup_ddp_distributed_training(distributed, device)
         
         # Barrier to ensure all processes are synchronized before starting
         dist.barrier()
+
+        if self.rank == 0:
+            wandb.init(
+                project="VGGT",  
+                name=kwargs['exp_name'],
+                config={
+                    "max_epochs": self.max_epochs,
+                    "lr": self.optim_conf.optimizer.lr if hasattr(self.optim_conf, "lr") else None,
+                    "batch_size": getattr(self.data_conf.train, "batch_size", None),
+                },
+            )
+
 
     def _setup_timers(self):
         """Initializes timers for tracking total elapsed time."""
@@ -376,6 +387,9 @@ class Trainer:
             self.run_val()
         else:
             raise ValueError(f"Invalid mode: {self.mode}")
+        
+        if self.rank == 0:
+            wandb.finish()
 
     def run_train(self):
         """Runs the main training loop over all epochs."""
@@ -635,6 +649,13 @@ class Trainer:
 
             if data_iter % self.logging_conf.log_freq == 0:
                 progress.display(data_iter)
+            
+            if self.rank == 0:
+                try:
+                    mean_loss = sum(m.val for name, m in loss_meters.items() if "Loss/train" in name) / max(1, len(loss_meters))
+                    wandb.log({"epoch": self.epoch, "train/mean_loss": mean_loss})
+                except Exception:
+                    pass
 
         return True
 
@@ -771,6 +792,7 @@ class Trainer:
                 loss_meters[f"Loss/{phase}_{key}"].update(value, batch_size)
                 if step % self.logging_conf.log_freq == 0 and self.rank == 0:
                     self.tb_writer.log(f"Values/{phase}/{key}", value, step)
+                    wandb.log({f"{phase}/{key}": value, "step": step})
 
     def _log_tb_visuals(self, batch: Mapping, phase: str, step: int) -> None:
         """Logs image or video visualizations to TensorBoard."""

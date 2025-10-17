@@ -132,7 +132,7 @@ class MapillaryDataset(BaseDataset):
             ids = np.random.choice(num_images, img_per_seq, replace=self.allow_duplicate_img)
 
         if self.get_nearby:
-            print(f"Getting nearby ids for {scene_token}/{direction}")
+            # print(f"Getting nearby ids for {scene_token}/{direction}")
             ids = self.get_nearby_ids(ids, num_images, expand_ratio=self.expand_ratio)
 
         target_image_shape = self.get_target_shape(aspect_ratio)

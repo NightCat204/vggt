@@ -168,11 +168,11 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--seq_index", type=int, default=10)
     parser.add_argument("--img_per_seq", type=int, default=24)
-    parser.add_argument("--point_size", type=float, default=0.005)
+    parser.add_argument("--point_size", type=float, default=0.01)
     parser.add_argument("--port", type=int, default=8080)
     parser.add_argument("--show_frustum", action="store_true", default=True)
-    parser.add_argument("--frustum_scale", type=float, default=0.25)
-    parser.add_argument("--dataset", type=str, default="hypersim")  # Change to your dataset
+    parser.add_argument("--frustum_scale", type=float, default=0.5)
+    parser.add_argument("--dataset", type=str, default="megadepth")  # Change to your dataset
     args = parser.parse_args()
 
     with initialize(version_base=None, config_path="../config"):

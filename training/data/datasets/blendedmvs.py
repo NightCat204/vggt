@@ -67,17 +67,17 @@ class BlendedMVSDataset(BaseDataset):
 
         # Load or generate sequence list (list of 24-char scene folder names)
         txt_path = osp.join(self.BLENDED_DIR, "sequence_list.txt")
-        if osp.exists(txt_path):
-            with open(txt_path, 'r') as f:
-                sequence_list = [line.strip() for line in f.readlines() if len(line.strip()) == 24]
-        else:
+        # if osp.exists(txt_path):
+        #     with open(txt_path, 'r') as f:
+        #         sequence_list = [line.strip() for line in f.readlines() if len(line.strip()) == 24]
+        # else:
             # Generate sequence list and save to txt            
-            sequence_list = [d for d in os.listdir(self.BLENDED_DIR) if osp.isdir(osp.join(self.BLENDED_DIR, d)) and len(d) == 24]
-            sequence_list = sorted(sequence_list)
+        sequence_list = [d for d in os.listdir(self.BLENDED_DIR) if osp.isdir(osp.join(self.BLENDED_DIR, d)) and len(d) == 24]
+        sequence_list = sorted(sequence_list)
 
-            # Save to txt file
-            with open(txt_path, 'w') as f:
-                f.write('\n'.join(sequence_list))
+        # Save to txt file
+        with open(txt_path, 'w') as f:
+            f.write('\n'.join(sequence_list))
 
         # Filter sequences with enough images available
         filtered_list = []
@@ -95,7 +95,7 @@ class BlendedMVSDataset(BaseDataset):
         self.sequence_list_len = len(self.sequence_list)
 
         # Analyze the sequence number and the distribution of the sequence length
-        sequence_lengths = [len(cam_files) for cam_files in cam_files]
+        sequence_lengths = [len(cam_files) for cam_files in self.sequence_list]
         self.save_seq_stats(self.sequence_list, sequence_lengths, self.__class__.__name__)
 
         self.depth_max = 80  # optional clamp (meters). Set -1 to disable in threshold_depth_map.

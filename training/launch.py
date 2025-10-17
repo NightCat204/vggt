@@ -8,14 +8,14 @@ import argparse
 from hydra import initialize, compose
 from omegaconf import DictConfig, OmegaConf  # noqa: F401
 from trainer import Trainer
-
+import wandb
 
 def main():
     parser = argparse.ArgumentParser(description="Train model with configurable YAML file")
     parser.add_argument(
         "--config", 
         type=str, 
-        default="default",
+        default="default_1d",
         help="Name of the config file (without .yaml extension, default: default)"
     )
     args = parser.parse_args()

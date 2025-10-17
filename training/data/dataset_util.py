@@ -227,6 +227,7 @@ def resize_image_depth_and_intrinsic(
     image = Image.fromarray(image)
     input_resolution = np.array(image.size)
     output_resolution = np.floor(input_resolution * max_resize_scale).astype(int)
+
     image = image.resize(tuple(output_resolution), resample=lanczos if max_resize_scale < 1 else bicubic)
     image = np.array(image)
 
