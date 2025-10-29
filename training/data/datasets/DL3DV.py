@@ -17,6 +17,7 @@ from data.dataset_util import *
 from data.base_dataset import BaseDataset
 from hydra import initialize, compose
 from omegaconf import DictConfig, OmegaConf  # noqa: F401
+import ipdb
 
 
 class DL3DVDataset(BaseDataset):
@@ -24,7 +25,7 @@ class DL3DVDataset(BaseDataset):
         self,
         common_conf,
         split: str = "train",
-        DL3DV_DIR: str = "/lustre/fsw/portfolios/nvr/projects/nvr_av_verifvalid/users/ymingli/datasets/DL3DV-ALL-960P/DL3DV",
+        DL3DV_DIR: str = "DL3DV-ALL-960P/DL3DV",
         min_num_images: int = 24,
         len_train: int = 100000,
         len_test: int = 10000,
@@ -68,8 +69,10 @@ class DL3DVDataset(BaseDataset):
             with open(txt_path, "r") as f:
                 sequence_list = [line.strip() for line in f.readlines()]
         else:
-            json_paths = glob.glob(osp.join(self.DL3DV_DIR, "*", "transforms.json"))
-            sequence_list = [p.split(self.DL3DV_DIR)[-1].lstrip("/") for p in json_paths]
+            # NEW: search transforms.json under two-level structure: <bucket>/<seq>/transforms.json
+            json_paths = glob.glob(osp.join(self.DL3DV_DIR, "*", "*", "transforms.json"))
+            # Use relpath to keep entries relative to DL3DV_DIR
+            sequence_list = [osp.relpath(p, self.DL3DV_DIR) for p in json_paths] 
             sequence_list = sorted(sequence_list)
             with open(txt_path, "w") as f:
                 f.write("\n".join(sequence_list))
@@ -116,7 +119,7 @@ class DL3DVDataset(BaseDataset):
         intri_opencv[0, 2] = cx
         intri_opencv[1, 2] = cy
 
-        seq_dir_rel = osp.dirname(seq_rel_json_path)  # e.g. <hash>
+        seq_dir_rel = osp.dirname(seq_rel_json_path)  # e.g. <bucket>/<hash>
         seq_dir_abs = osp.join(self.DL3DV_DIR, seq_dir_rel)
 
         frames = []
@@ -175,7 +178,6 @@ class DL3DVDataset(BaseDataset):
             ids = self.get_nearby_ids(ids, num_images, expand_ratio=self.expand_ratio)
 
         target_image_shape = self.get_target_shape(aspect_ratio)
-        # print(f"target_image_shape: {target_image_shape}")
 
         images, depths = [], []
         cam_points, world_points, point_masks = [], [], []
@@ -190,7 +192,6 @@ class DL3DVDataset(BaseDataset):
             image = read_image_cv2(img_path)
             H, W = image.shape[:2]
 
-            # 从 4K(meta_w, meta_h) 缩放到当前图像分辨率 (W, H)
             sx = W / float(meta_w)
             sy = H / float(meta_h)
 
@@ -257,5 +258,6 @@ if __name__ == "__main__":
     with initialize(version_base=None, config_path="../../config"):
         cfg = compose(config_name="default")
     dataset = DL3DVDataset(common_conf=cfg.data.train.common_config, split="train", DL3DV_DIR="/lustre/fsw/portfolios/nvr/projects/nvr_av_verifvalid/users/ymingli/datasets/DL3DV-ALL-960P/DL3DV")
+    dataset._load_seq_meta("fb4bfdc47baccc5e69a6e4b2fd990d75a25424abed7684f3537f404a49ee2762/transforms.json")
+    # ipdb.set_trace()
     print(dataset[(0, 24, 0.8)])
-

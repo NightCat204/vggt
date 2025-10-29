@@ -1,7 +1,7 @@
 defaults:
   - default_dataset.yaml
 
-exp_name: vggt_1d_8_datasets
+exp_name: vggt_1d_7_datasets
 img_size: 256
 num_workers: 1
 seed_value: 42
@@ -28,110 +28,111 @@ data:
     dataset:
       _target_: data.composed_dataset.ComposedDataset
       dataset_configs:
+        # # - _target_: data.datasets.vkitti.VKittiDataset
+        # #   split: train
+        # #   VKitti_DIR: /home/solution/Documents/Projects/Dataset/vkitti
+        # #   len_train: 100000
+        # #   expand_ratio: 8 
 
-        # Co3D
+        # - _target_: data.datasets.vkitti.VKittiDataset
+        #   split: train
+        #   VKitti_DIR: /lustre/fsw/portfolios/nvr/projects/nvr_av_verifvalid/users/ymingli/datasets/vkitti
+        #   len_train: 100000
+        #   expand_ratio: 8 
+
+        # # MVS Synth Error
+        # # - _target_: data.datasets.MVSSynth.MVSSynthDataset
+        # #   split: train
+        # #   MVSSynth_DIR: /lustre/fsw/portfolios/nvr/projects/nvr_av_verifvalid/users/ymingli/datasets/MVS-Synth/GTAV_720
+        # #   len_train: 100000
+        # #   expand_ratio: 8 
+
+        # # ASE
+        # - _target_: data.datasets.ASE.ASEDataset
+        #   split: train
+        #   ASE_DIR: /lustre/fsw/portfolios/nvr/projects/nvr_av_verifvalid/users/ymingli/datasets/ASE
+        #   len_train: 10000
+        #   expand_ratio: 8
+
+        # # DL3DV
+        # - _target_: data.datasets.DL3DV.DL3DVDataset
+        #   split: train
+        #   DL3DV_DIR: /lustre/fsw/portfolios/nvr/projects/nvr_av_verifvalid/users/ymingli/datasets/DL3DV-ALL-960P/DL3DV
+        #   len_train: 100000
+        #   expand_ratio: 8
+
+        # # Mapillary
+        # - _target_: data.datasets.mapillary.MapillaryDataset
+        #   split: train
+        #   MAPILLARY_DIR: /lustre/fsw/portfolios/nvr/projects/nvr_av_verifvalid/users/ymingli/datasets/Mapillary
+        #   len_train: 100000
+        #   expand_ratio: 8
+
+        # # Omnidata HyperSim
+        # # - _target_: data.datasets.Omnidata.OmniDataset
+        # #   split: train
+        # #   CAMERA_POSE_ROOT: /lustre/fsw/portfolios/nvr/projects/nvr_av_verifvalid/users/ymingli/datasets/Omnidata/omnidata_starter_dataset/camera_pose/hypersim
+        # #   len_train: 100000
+        # #   expand_ratio: 8
+
+        # # Omnidata Replica
+        # - _target_: data.datasets.Omnidata.OmniDataset
+        #   split: train
+        #   CAMERA_POSE_ROOT: /lustre/fsw/portfolios/nvr/projects/nvr_av_verifvalid/users/ymingli/datasets/Omnidata/omnidata_starter_dataset/camera_pose/replica
+        #   len_train: 100000
+        #   expand_ratio: 8
+
+        # # WildRGBD
+        # - _target_: data.datasets.wildrgbd.WildRGBDDataset
+        #   split: train
+        #   WILDRGBD_DIR: /lustre/fsw/portfolios/nvr/projects/nvr_av_verifvalid/users/ymingli/datasets/WildRGB-D
+        #   len_train: 100000
+        #   expand_ratio: 8
+
+
+        # # ADT Slow
+        # # - _target_: data.datasets.ADT.ADTDataset
+        # #   split: train
+        # #   ADT_DIR: /lustre/fsw/portfolios/nvr/projects/nvr_av_verifvalid/users/ymingli/datasets/ADT
+        # #   len_train: 100000
+        # #   expand_ratio: 8
+
+
+        # # Omnidata Taskonomy Slow
+        # # - _target_: data.datasets.Omnidata.OmniDataset
+        # #   split: train
+        # #   CAMERA_POSE_ROOT: /lustre/fsw/portfolios/nvr/projects/nvr_av_verifvalid/users/ymingli/datasets/Omnidata/omnidata_starter_dataset/camera_pose/taskonomy
+        # #   len_train: 100000
+        # #   expand_ratio: 8
+
+
+        # # MegaDepth
+        # - _target_: data.datasets.megadepth.MegaDepthDataset
+        #   split: train
+        #   MEGADEPTH_DIR: /lustre/fsw/portfolios/nvr/projects/nvr_av_verifvalid/users/ymingli/datasets/MegaDepth/phoenix/S6/zl548/MegaDepth_v1
+        #   len_train: 100000
+        #   expand_ratio: 8
+      
+        # # # ScanNetv2 Not Complete
+        # # - _target_: data.datasets.scanNetv2.ScanNetv2
+        # #   split: train
+        # #   ScanNetv2_DIR: /lustre/fsw/portfolios/nvr/projects/nvr_av_verifvalid/users/ymingli/datasets/vlm_visual_odom/ScanNet/decoded/test
+        # #   len_train: 100000
+        # #   expand_ratio: 8
+
+        # # BlendedMVS
+        # - _target_: data.datasets.blendedmvs.BlendedMVSDataset
+        #   split: train
+        #   BLENDED_DIR: /lustre/fsw/portfolios/nvr/projects/nvr_av_verifvalid/users/ymingli/datasets/BlendedMVS/BlendedMVS
+        #   len_train: 100000
+        #   expand_ratio: 8
+
+        # CO3D
         - _target_: data.datasets.co3d.Co3dDataset
           split: train
           CO3D_DIR: /lustre/fsw/portfolios/nvr/projects/nvr_av_verifvalid/users/ymingli/datasets/co3d
           CO3D_ANNOTATION_DIR: /lustre/fsw/portfolios/nvr/projects/nvr_av_verifvalid/users/ymingli/datasets/co3d_anno
-
-        # VKitti
-        - _target_: data.datasets.vkitti.VKittiDataset
-          split: train
-          VKitti_DIR: /lustre/fsw/portfolios/nvr/projects/nvr_av_verifvalid/users/ymingli/datasets/vkitti
-          len_train: 100000
-          expand_ratio: 8 
-
-        # MVS Synth Error
-        # - _target_: data.datasets.MVSSynth.MVSSynthDataset
-        #   split: train
-        #   MVSSynth_DIR: /lustre/fsw/portfolios/nvr/projects/nvr_av_verifvalid/users/ymingli/datasets/MVS-Synth/GTAV_720
-        #   len_train: 100000
-        #   expand_ratio: 8 
-
-        # ASE
-        - _target_: data.datasets.ASE.ASEDataset
-          split: train
-          ASE_DIR: /lustre/fsw/portfolios/nvr/projects/nvr_av_verifvalid/users/ymingli/datasets/ASE
-          len_train: 10000
-          expand_ratio: 8
-
-        # DL3DV
-        - _target_: data.datasets.DL3DV.DL3DVDataset
-          split: train
-          DL3DV_DIR: /lustre/fsw/portfolios/nvr/projects/nvr_av_verifvalid/users/ymingli/datasets/DL3DV
-          len_train: 100000
-          expand_ratio: 8
-
-        # Mapillary
-        - _target_: data.datasets.mapillary.MapillaryDataset
-          split: train
-          MAPILLARY_DIR: /lustre/fsw/portfolios/nvr/projects/nvr_av_verifvalid/users/ymingli/datasets/Mapillary
-          len_train: 100000
-          expand_ratio: 8
-
-        # Omnidata HyperSim Error 
-        # - _target_: data.datasets.Omnidata.OmniDataset
-        #   split: train
-        #   CAMERA_POSE_ROOT: /lustre/fsw/portfolios/nvr/projects/nvr_av_verifvalid/users/ymingli/datasets/Omnidata/omnidata_starter_dataset/camera_pose/hypersim
-        #   len_train: 100000
-        #   expand_ratio: 8
-
-        # Omnidata Replica
-        - _target_: data.datasets.Omnidata.OmniDataset
-          split: train
-          CAMERA_POSE_ROOT: /lustre/fsw/portfolios/nvr/projects/nvr_av_verifvalid/users/ymingli/datasets/Omnidata/omnidata_starter_dataset/camera_pose/replica
-          len_train: 100000
-          expand_ratio: 8
-
-        # WildRGBD
-        - _target_: data.datasets.wildrgbd.WildRGBDDataset
-          split: train
-          WILDRGBD_DIR: /lustre/fsw/portfolios/nvr/projects/nvr_av_verifvalid/users/ymingli/datasets/WildRGB-D
-          len_train: 100000
-          expand_ratio: 8
-
-        # ADT
-        # - _target_: data.datasets.ADT.ADTDataset
-        #   split: train
-        #   ADT_DIR: /lustre/fsw/portfolios/nvr/projects/nvr_av_verifvalid/users/ymingli/datasets/ADT
-        #   len_train: 100000
-        #   expand_ratio: 8
-
-        # Omnidata Taskonomy
-        # - _target_: data.datasets.Omnidata.OmniDataset
-        #   split: train
-        #   CAMERA_POSE_ROOT: /lustre/fsw/portfolios/nvr/projects/nvr_av_verifvalid/users/ymingli/datasets/Omnidata/omnidata_starter_dataset/camera_pose/taskonomy
-        #   len_train: 100000
-        #   expand_ratio: 8
-
-        # MegaDepth
-        - _target_: data.datasets.megadepth.MegaDepthDataset
-          split: train
-          MEGADEPTH_DIR: /lustre/fsw/portfolios/nvr/projects/nvr_av_verifvalid/users/ymingli/datasets/MegaDepth/phoenix/S6/zl548/MegaDepth_v1
-          len_train: 100000
-          expand_ratio: 8
-      
-        # # ScanNetv2 Not Complete
-        # - _target_: data.datasets.scanNetv2.ScanNetv2
-        #   split: train
-        #   ScanNetv2_DIR: /lustre/fsw/portfolios/nvr/projects/nvr_av_verifvalid/users/ymingli/datasets/vlm_visual_odom/ScanNet/decoded/test
-        #   len_train: 100000
-        #   expand_ratio: 8
-
-        # BlendedMVS
-        - _target_: data.datasets.blendedmvs.BlendedMVSDataset
-          split: train
-          BLENDED_DIR: /lustre/fsw/portfolios/nvr/projects/nvr_av_verifvalid/users/ymingli/datasets/BlendedMVS/BlendedMVS
-          len_train: 100000
-          expand_ratio: 8
-
-        # - _target_: data.datasets.vkitti.VKittiDataset
-        #   split: train
-        #   VKitti_DIR: /home/solution/Documents/Projects/Dataset/vkitti
-        #   len_train: 100000
-        #   expand_ratio: 8 
-
+          # len_train: 100000
   val:
     _target_: data.dynamic_dataloader.DynamicTorchDataset
     num_workers: ${num_workers}

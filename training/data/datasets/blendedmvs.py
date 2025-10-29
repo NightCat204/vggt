@@ -64,20 +64,9 @@ class BlendedMVSDataset(BaseDataset):
             raise ValueError(f"Invalid split: {split}")
         
         logging.info(f"BLENDED_DIR is {self.BLENDED_DIR}")
-
-        # Load or generate sequence list (list of 24-char scene folder names)
-        txt_path = osp.join(self.BLENDED_DIR, "sequence_list.txt")
-        # if osp.exists(txt_path):
-        #     with open(txt_path, 'r') as f:
-        #         sequence_list = [line.strip() for line in f.readlines() if len(line.strip()) == 24]
-        # else:
-            # Generate sequence list and save to txt            
+      
         sequence_list = [d for d in os.listdir(self.BLENDED_DIR) if osp.isdir(osp.join(self.BLENDED_DIR, d)) and len(d) == 24]
         sequence_list = sorted(sequence_list)
-
-        # Save to txt file
-        with open(txt_path, 'w') as f:
-            f.write('\n'.join(sequence_list))
 
         # Filter sequences with enough images available
         filtered_list = []
@@ -132,9 +121,8 @@ class BlendedMVSDataset(BaseDataset):
             seq_name = self.sequence_list[seq_index]
 
         # Determine number of frames by counting cam files
-        cam_dir = osp.join(self.BLENDED_DIR, seq_name, 'cams')
-        cam_files = sorted([p for p in glob.glob(osp.join(cam_dir, "*_cam.txt")) if osp.basename(p) != 'pair.txt'])
-        num_images = len(cam_files)
+        depth_files = sorted([p for p in glob.glob(osp.join(self.BLENDED_DIR, seq_name, 'rendered_depth_maps', "*.pfm"))])
+        num_images = len(depth_files)
 
         if ids is None:
             ids = np.random.choice(num_images, img_per_seq, replace=self.allow_duplicate_img)
@@ -158,14 +146,14 @@ class BlendedMVSDataset(BaseDataset):
         depth_map_min = 0
         depth_map_mean = 0
 
+        # Read All file of images
+
         for local_idx in ids:
-
-
-            # Change from here
-            stem = f"{local_idx:08d}"
-            image_filepath = osp.join(self.BLENDED_DIR, seq_name, 'blended_images', f'{stem}.jpg')
-            depth_filepath = osp.join(self.BLENDED_DIR, seq_name, 'rendered_depth_maps', f'{stem}.pfm')
-            cam_filepath = osp.join(self.BLENDED_DIR, seq_name, 'cams', f'{stem}_cam.txt')
+            depth_filepath = depth_files[local_idx]
+            image_filepath = depth_filepath.replace("rendered_depth_maps", "blended_images").replace(".pfm", ".jpg")
+            cam_filepath = depth_filepath.replace("rendered_depth_maps", "cams").replace(".pfm", "_cam.txt")
+            # depth_filepath = osp.join(self.BLENDED_DIR, seq_name, 'rendered_depth_maps', f'{stem}.pfm')
+            # cam_filepath = osp.join(self.BLENDED_DIR, seq_name, 'cams', f'{stem}_cam.txt')
 
             image = read_image_cv2(image_filepath)
             depth_map = read_depth(depth_filepath, scale_adjustment=1.0)
@@ -187,7 +175,6 @@ class BlendedMVSDataset(BaseDataset):
             extri_opencv = extri44[:3, :]  # camera-from-world (OpenCV), 3x4
             intri_opencv = intri33.copy()
             # Change to here
-
 
             (
                 image,

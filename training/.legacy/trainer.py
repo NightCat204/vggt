@@ -27,9 +27,6 @@ import time
 from datetime import timedelta
 from typing import Any, Dict, List, Mapping, Optional, Sequence
 
-import random
-import numpy as np
-
 import torch
 import torch.distributed as dist
 import torch.nn as nn
@@ -129,6 +126,9 @@ class Trainer:
         # 'where' tracks training progress from 0.0 to 1.0 for schedulers
         self.where = 0.0
 
+        # Used to gate resume-once logic when loading checkpoints
+        self._resume_state_applied = True
+
         # Keep track of WandB metadata when resuming from checkpoints
         self._wandb_resume_info = None
 
@@ -185,7 +185,6 @@ class Trainer:
                     "lr": self.optim_conf.optimizer.lr if hasattr(self.optim_conf, "lr") else None,
                     "batch_size": getattr(self.data_conf.train, "batch_size", None),
                 },
-                "dir": self.logging_conf.log_dir,
             }
             if self._wandb_resume_info:
                 wandb_init_kwargs["name"] = self._wandb_resume_info.get("name", wandb_init_kwargs["name"])
@@ -214,11 +213,13 @@ class Trainer:
     def _setup_torch_dist_and_backend(self, cuda_conf: Dict, distributed_conf: Dict) -> None:
         """Initializes the distributed process group and configures PyTorch backends."""
         if torch.cuda.is_available():
+            # Configure CUDA backend settings for performance
             torch.backends.cudnn.deterministic = cuda_conf.cudnn_deterministic
             torch.backends.cudnn.benchmark = cuda_conf.cudnn_benchmark
             torch.backends.cuda.matmul.allow_tf32 = cuda_conf.allow_tf32
             torch.backends.cudnn.allow_tf32 = cuda_conf.allow_tf32
 
+        # Initialize the DDP process group
         dist.init_process_group(
             backend=distributed_conf.backend,
             timeout=timedelta(minutes=distributed_conf.timeout_mins)
@@ -232,6 +233,7 @@ class Trainer:
         with g_pathmgr.open(ckpt_path, "rb") as f:
             checkpoint = torch.load(f, map_location="cpu")
 
+        # ipdb.set_trace()
         if 'titok' in ckpt_path:
             missing, unexpected = self.model.aggregator.patch_embed.load_state_dict(
                 checkpoint, strict=self.checkpoint_conf.strict
@@ -239,6 +241,7 @@ class Trainer:
             if self.rank == 0:
                 logging.info(f"Model state loaded. Missing keys: {missing or 'None'}.")
         else:
+            # Load model state
             model_state_dict = checkpoint["model"] if "model" in checkpoint else checkpoint
             missing, unexpected = self.model.load_state_dict(
                 model_state_dict, strict=self.checkpoint_conf.strict
@@ -246,24 +249,29 @@ class Trainer:
             if self.rank == 0:
                 logging.info(f"Model state loaded. Missing keys: {missing or 'None'}. Unexpected keys: {unexpected or 'None'}.")
 
+        # Load optimizer state if available and in training mode
         if "optimizer" in checkpoint:
             logging.info(f"Loading optimizer state dict (rank {self.rank})")
             self.optims[0].optimizer.load_state_dict(checkpoint["optimizer"])
 
+        # Load training progress
         if "epoch" in checkpoint:
             logging.info(f"Resuming from epoch {checkpoint['epoch']} (rank {self.rank})")
             self.epoch = checkpoint["epoch"]
-            self._resume_epoch = self.epoch
 
         if "steps" in checkpoint:
             logging.info(f"Resuming from steps {checkpoint['steps']} (rank {self.rank})")
             self.steps = checkpoint["steps"] if "steps" in checkpoint else {"train": 0, "val": 0}
+
+        if isinstance(self.steps, dict) and self.steps.get("train", 0) > 0:
+            self._resume_state_applied = False
 
         if checkpoint.get("wandb"):
             self._wandb_resume_info = checkpoint["wandb"]
 
         self.ckpt_time_elapsed = checkpoint.get("time_elapsed", 0)
 
+        # Load AMP scaler state if available
         if self.optim_conf.amp.enabled and "scaler" in checkpoint:
             self.scaler.load_state_dict(checkpoint["scaler"])
 
@@ -284,12 +292,14 @@ class Trainer:
         self.epoch = 0
         self.steps = {'train': 0, 'val': 0}
 
+        # Instantiate components from configs
         self.tb_writer = instantiate(self.logging_conf.tensorboard_writer, _recursive_=False)
         self.model = instantiate(self.model_conf, _recursive_=False)
         self.loss = instantiate(self.loss_conf, _recursive_=False)
         self.gradient_clipper = instantiate(self.optim_conf.gradient_clip)
         self.scaler = torch.cuda.amp.GradScaler(enabled=self.optim_conf.amp.enabled)
 
+        # Freeze specified model parameters if any
         if getattr(self.optim_conf, "frozen_module_names", None):
             logging.info(
                 f"[Start] Freezing modules: {self.optim_conf.frozen_module_names} on rank {self.distributed_rank}"
@@ -302,6 +312,7 @@ class Trainer:
                 f"[Done] Freezing modules: {self.optim_conf.frozen_module_names} on rank {self.distributed_rank}"
             )
 
+        # Log model summary on rank 0
         if self.rank == 0:
             model_summary_path = os.path.join(self.logging_conf.log_dir, "model.txt")
             model_summary(self.model, log_file=model_summary_path)
@@ -384,6 +395,7 @@ class Trainer:
                 "steps": dict(self.steps),
             }
 
+        # Save the checkpoint for DDP only
         saver = DDPCheckpointSaver(
             checkpoint_folder,
             checkpoint_names=checkpoint_names,
@@ -401,6 +413,9 @@ class Trainer:
             **checkpoint_content,
         )
 
+
+
+
     def _get_scalar_log_keys(self, phase: str) -> List[str]:
         """Retrieves keys for scalar values to be logged for a given phase."""
         if self.logging_conf.scalar_keys_to_log:
@@ -412,6 +427,7 @@ class Trainer:
         assert self.mode in ["train", "val"], f"Invalid mode: {self.mode}"
         if self.mode == "train":
             self.run_train()
+            # Optionally run a final validation after all training is done
             self.run_val()
         elif self.mode == "val":
             self.run_val()
@@ -425,21 +441,56 @@ class Trainer:
         """Runs the main training loop over all epochs."""
         while self.epoch < self.max_epochs:
             set_seeds(self.seed_value + self.epoch * 100, self.max_epochs, self.distributed_rank)
-            
+
             dataloader = self.train_dataset.get_loader(epoch=int(self.epoch + self.distributed_rank))
             start_iter = 0
-            if getattr(self, "_resume_epoch", None) == self.epoch:
-                total = len(dataloader)
-                start_iter = self.steps.get("train", 0) % max(1, total)
+
+            if not self._resume_state_applied:
+                total_steps = self.steps.get("train", 0)
+                if total_steps > 0:
+                    iters_per_epoch = len(dataloader)
+                    if iters_per_epoch == 0:
+                        logging.warning("Train dataloader returned zero length; skipping resume offset.")
+                    else:
+                        epochs_completed, remainder = divmod(total_steps, iters_per_epoch)
+                        if epochs_completed >= self.max_epochs:
+                            logging.info("All epochs already completed according to checkpoint; skipping training loop.")
+                            self.epoch = self.max_epochs
+                            break
+                        if epochs_completed > self.epoch:
+                            # Completed additional epochs before checkpoint; advance epoch index
+                            self.epoch = epochs_completed
+                            # Recreate loader and reseed so shuffling matches the epoch being resumed
+                            del dataloader
+                            gc.collect()
+                            if torch.cuda.is_available():
+                                torch.cuda.empty_cache()
+                            set_seeds(self.seed_value + self.epoch * 100, self.max_epochs, self.distributed_rank)
+                            dataloader = self.train_dataset.get_loader(epoch=int(self.epoch + self.distributed_rank))
+                            iters_per_epoch = len(dataloader)
+                            if remainder == 0:
+                                # Completed entire epochs; proceed with fresh epoch in next loop iteration
+                                continue
+                        start_iter = remainder
+                        if start_iter > 0 and self.rank == 0:
+                            logging.info(
+                                f"Resuming epoch {self.epoch} from batch {start_iter}/{iters_per_epoch}"
+                            )
+                self._resume_state_applied = True
+
             self.train_epoch(dataloader, start_iter=start_iter)
             
+            # Save checkpoint after each training epoch
             self.save_checkpoint(self.epoch)
 
+            # Clean up memory
             del dataloader
             gc.collect()
             torch.cuda.empty_cache()
             torch.cuda.reset_peak_memory_stats()
 
+            # Run validation at the specified frequency
+            # Skips validation after the last training epoch, as it can be run separately.
             if self.epoch % self.val_epoch_freq == 0 and self.epoch < self.max_epochs - 1:
                 self.run_val()
             
@@ -460,6 +511,7 @@ class Trainer:
         gc.collect()
         torch.cuda.empty_cache()
         torch.cuda.reset_peak_memory_stats()
+
 
     @torch.no_grad()
     def val_epoch(self, val_loader):
@@ -502,6 +554,7 @@ class Trainer:
             if data_iter > limit_val_batches:
                 break
             
+            # measure data loading time
             data_time.update(time.time() - end)
             data_times.append(data_time.val)
             
@@ -511,8 +564,12 @@ class Trainer:
 
             amp_type = self.optim_conf.amp.amp_dtype
             assert amp_type in ["bfloat16", "float16"], f"Invalid Amp type: {amp_type}"
-            amp_type = torch.bfloat16 if amp_type == "bfloat16" else torch.float16
+            if amp_type == "bfloat16":
+                amp_type = torch.bfloat16
+            else:
+                amp_type = torch.float16
             
+            # compute output
             with torch.no_grad():
                 with torch.cuda.amp.autocast(
                     enabled=self.optim_conf.amp.enabled,
@@ -522,6 +579,7 @@ class Trainer:
                         batch, self.model, phase, loss_meters
                     )
 
+            # measure elapsed time
             batch_time.update(time.time() - end)
             end = time.time()
 
@@ -534,6 +592,7 @@ class Trainer:
 
             if data_iter % self.logging_conf.log_freq == 0:
                 progress.display(data_iter)
+
 
         return True
 
@@ -553,6 +612,7 @@ class Trainer:
         for config in self.gradient_clipper.configs: 
             param_names = ",".join(config['module_names'])
             loss_meters[f"Grad/{param_names}"] = AverageMeter(f"Grad/{param_names}", self.device, ":.4f")
+
 
         progress = ProgressMeter(
             num_batches=len(train_loader),
@@ -578,28 +638,29 @@ class Trainer:
         )
         
         if self.gradient_clipper is not None:
+            # setup gradient clipping at the beginning of training
             self.gradient_clipper.setup_clipping(self.model)
-
-        logging.info(f"Starting training from iter {start_iter}")
-        start_iter = start_iter % limit_train_batches
-        logging.info(f"Starting training from iter {start_iter} within limited {limit_train_batches} batches")
 
         for data_iter, batch in enumerate(train_loader):
             if data_iter < start_iter:
+                end = time.time()
                 continue
             if data_iter > limit_train_batches:
                 break
             
+            # measure data loading time
             data_time.update(time.time() - end)
             data_times.append(data_time.val)
 
+            
             with torch.cuda.amp.autocast(enabled=False):
                 batch = self._process_batch(batch)
 
             batch = copy_data_to_device(batch, self.device, non_blocking=True)
 
             accum_steps = self.accum_steps
-            if accum_steps == 1:
+
+            if accum_steps==1:
                 chunked_batches = [batch]
             else:
                 chunked_batches = chunk_batch_for_accum_steps(batch, accum_steps)
@@ -608,7 +669,8 @@ class Trainer:
                 chunked_batches, phase, loss_meters
             )
 
-            assert data_iter <= limit_train_batches
+            # compute gradient and do SGD step
+            assert data_iter <= limit_train_batches  # allow for off by one errors
             exact_epoch = self.epoch + float(data_iter) / limit_train_batches
             self.where = float(exact_epoch) / self.max_epochs
             
@@ -621,6 +683,7 @@ class Trainer:
                     f"Skipping scheduler update since the training is at the end, i.e, {self.where} of [0,1]."
                 )
                     
+            # Log schedulers
             if self.steps[phase] % self.logging_conf.log_freq == 0:
                 for i, optim in enumerate(self.optims):
                     for j, param_group in enumerate(optim.optimizer.param_groups):
@@ -645,6 +708,7 @@ class Trainer:
                     self.steps[phase],
                 )
 
+            # Clipping gradients and detecting diverging gradients
             if self.gradient_clipper is not None:
                 for optim in self.optims:
                     self.scaler.unscale_(optim.optimizer)
@@ -654,10 +718,12 @@ class Trainer:
                 for key, grad_norm in grad_norm_dict.items():
                     loss_meters[f"Grad/{key}"].update(grad_norm)
 
+            # Optimizer step
             for optim in self.optims:   
                 self.scaler.step(optim.optimizer)
             self.scaler.update()
 
+            # Measure elapsed time
             batch_time.update(time.time() - end)
             end = time.time()
             self.time_elapsed_meter.update(
@@ -695,7 +761,10 @@ class Trainer:
 
         amp_type = self.optim_conf.amp.amp_dtype
         assert amp_type in ["bfloat16", "float16"], f"Invalid Amp type: {amp_type}"
-        amp_type = torch.bfloat16 if amp_type == "bfloat16" else torch.float16
+        if amp_type == "bfloat16":
+            amp_type = torch.bfloat16
+        else:
+            amp_type = torch.float16
         
         for i, chunked_batch in enumerate(chunked_batches):
             ddp_context = (
@@ -713,6 +782,7 @@ class Trainer:
                         chunked_batch, self.model, phase, loss_meters
                     )
 
+
                 loss = loss_dict["objective"]
                 loss_key = f"Loss/{phase}_loss_objective"
                 batch_size = chunked_batch["images"].shape[0]
@@ -725,6 +795,7 @@ class Trainer:
                 loss /= accum_steps
                 self.scaler.scale(loss).backward()
                 loss_meters[loss_key].update(loss.item(), batch_size)
+
 
     def _apply_batch_repetition(self, batch: Mapping) -> Mapping:
         """
@@ -754,6 +825,7 @@ class Trainer:
         if self.data_conf.train.common_config.repeat_batch:
             batch = self._apply_batch_repetition(batch)
         
+        # Normalize camera extrinsics and points. The function returns new tensors.
         normalized_extrinsics, normalized_cam_points, normalized_world_points, normalized_depths = \
             normalize_camera_extrinsics_and_points_batch(
                 extrinsics=batch["extrinsics"],
@@ -763,6 +835,7 @@ class Trainer:
                 point_masks=batch["point_masks"],
             )
 
+        # Replace the original values in the batch with the normalized ones.
         batch["extrinsics"] = normalized_extrinsics
         batch["cam_points"] = normalized_cam_points
         batch["world_points"] = normalized_world_points
@@ -777,10 +850,13 @@ class Trainer:
         Returns:
             A dictionary containing the computed losses.
         """
+        # Forward pass
         y_hat = model(images=batch["images"])
         
+        # Loss computation
         loss_dict = self.loss(y_hat, batch)
         
+        # Combine all data for logging
         log_data = {**y_hat, **loss_dict, **batch}
 
         self._update_and_log_scalars(log_data, phase, self.steps[phase], loss_meters)

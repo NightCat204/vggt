@@ -15,7 +15,6 @@ from data.base_dataset import BaseDataset
 from hydra import initialize, compose
 
 
-
 class OmniDataset(BaseDataset):
     """
     Root Path Example:
@@ -48,7 +47,6 @@ class OmniDataset(BaseDataset):
         self.CAMERA_POSE_ROOT = CAMERA_POSE_ROOT.rstrip("/")
         self.min_num_images = min_num_images
 
-
         if split == "train":
             self.len_train = len_train
         elif split == "test":
@@ -57,16 +55,18 @@ class OmniDataset(BaseDataset):
             raise ValueError(f"Invalid split: {split}")
 
         self.dataset_name = CAMERA_POSE_ROOT.split("/")[-2]
-            
         logging.info(f"{self.dataset_name} CAMERA_POSE_ROOT = {self.CAMERA_POSE_ROOT}")
 
         scene_dirs = [p for p in glob.glob(osp.join(self.CAMERA_POSE_ROOT, "*")) if osp.isdir(p)]
-        scene_dirs = sorted(scene_dirs)
-        sequence_list = []
-        seq_lengths = []
-        pose_list_dict = {}
-        ranking_dict = {}
+        scene_dirs = sorted(scene_dirs)[:1]
 
+        print(f"Found {scene_dirs} scenes under {self.CAMERA_POSE_ROOT}")
+
+        sequence_list, seq_lengths = [], []
+        pose_list_dict = {}
+        ranking_path_dict = {}
+
+        # only collect paths; don't load dists here
         for scene_dir in scene_dirs:
             pose_list = sorted(glob.glob(osp.join(scene_dir, "*.npz")))
             if len(pose_list) >= self.min_num_images:
@@ -78,55 +78,63 @@ class OmniDataset(BaseDataset):
                 sequence_list.append(scene_dir)
                 seq_lengths.append(len(pose_list))
                 pose_list_dict[scene_dir] = pose_list
-                with np.load(dists_npz, allow_pickle=False) as z:
-                    r = z["ranking"].astype(np.int32, copy=True)  
-                r.setflags(write=False)       
-                ranking_dict[scene_dir] = r
+                ranking_path_dict[scene_dir] = dists_npz
 
-        self.ranking_dict = ranking_dict
         self.pose_list_dict = pose_list_dict
         self.sequence_list = sequence_list
         self.sequence_list_len = len(self.sequence_list)
-        self.save_seq_stats(self.sequence_list, seq_lengths, self.__class__.__name__) 
+        self.ranking_path_dict = ranking_path_dict
+        self._ranking_cache = {}  # lazy cache
 
+        self.save_seq_stats(self.sequence_list, seq_lengths, self.__class__.__name__)
         self.depth_max = 80
 
         status = "Training" if self.training else "Testing"
         logging.info(f"{status}: {self.dataset_name} scene count: {self.sequence_list_len}")
         logging.info(f"{status}: {self.dataset_name} dataset length: {len(self)}")
 
+    def _get_ranking(self, scene_dir: str) -> np.ndarray:
+        """lazy load ranking with in-memory cache"""
+        r = self._ranking_cache.get(scene_dir, None)
+        if r is not None:
+            return r
+        dists_npz = self.ranking_path_dict.get(scene_dir, None)
+        if dists_npz is None or not osp.exists(dists_npz):
+            raise FileNotFoundError(f"Missing dists.npz for {scene_dir}")
+        with np.load(dists_npz, allow_pickle=False) as z:
+            r = z["ranking"].astype(np.int32, copy=True)
+        r.setflags(write=False)
+        self._ranking_cache[scene_dir] = r
+        return r
 
     def get_data(
         self,
         seq_index: int = None,
         img_per_seq: int = 24,
-        seq_name: str = None,   
-        ids: list = None,       
+        seq_name: str = None,
+        ids: list = None,
         aspect_ratio: float = 1.0,
     ) -> dict:
 
-        if self.inside_random and self.training:
-            seq_index = random.randint(0, self.sequence_list_len - 1)
-        scene_dir = self.sequence_list[seq_index]  
+        # if self.inside_random and self.training:
+            # seq_index = random.randint(0, self.sequence_list_len - 1)
+        seq_index = 0
+        scene_dir = self.sequence_list[seq_index]
 
         pose_list = self.pose_list_dict[scene_dir]
         num_images = len(pose_list)
         if num_images < 1:
             raise RuntimeError(f"No npz in scene_dir={scene_dir}")
 
-        ranking = self.ranking_dict[scene_dir]
-        # dists   = sim_mat["dists"]    # (N,N)
+        ranking = self._get_ranking(scene_dir)
         assert ranking.shape[0] == num_images, f"ranking rows != num_images ({ranking.shape[0]} vs {num_images})"
 
-
         anchor_idx = random.randint(0, num_images - 1)
-        # print(f"anchor_idx = {anchor_idx}")
         order = ranking[anchor_idx].tolist()
         order = [i for i in order if i != anchor_idx]
-        topK  = order[:min(127, len(order))]
+        topK = order[:min(127, len(order))]
         pick = sorted(random.sample(topK, img_per_seq - 1))
-        ids = [anchor_idx] + pick  
-
+        ids = [anchor_idx] + pick
 
         target_image_shape = self.get_target_shape(aspect_ratio)
 
@@ -140,12 +148,9 @@ class OmniDataset(BaseDataset):
             rgb_path = map_paths(npz_path, "npz_cam", "rgb")
             depth_path = map_paths(npz_path, "npz_cam", "depth")
 
-            # print(f"rgb_path = {rgb_path}")
-            # print(f"depth_path = {depth_path}")
-
-            image = read_image_cv2(rgb_path) 
+            image = read_image_cv2(rgb_path)
             depth_map = cv2.imread(depth_path, cv2.IMREAD_UNCHANGED).astype(np.float32) / 512.0
-            depth_map = threshold_depth_map(depth_map, max_percentile=-1, min_percentile=-1, max_depth=self.depth_max) 
+            depth_map = threshold_depth_map(depth_map, max_percentile=-1, min_percentile=-1, max_depth=self.depth_max)
 
             assert image.shape[:2] == depth_map.shape, f"Image and depth shape mismatch: {image.shape[:2]} vs {depth_map.shape}"
 
@@ -196,8 +201,8 @@ class OmniDataset(BaseDataset):
             "frame_num": len(extrinsics),
             "images": images,
             "depths": depths,
-            "extrinsics": extrinsics,   
-            "intrinsics": intrinsics,   
+            "extrinsics": extrinsics,
+            "intrinsics": intrinsics,
             "cam_points": cam_points,
             "world_points": world_points,
             "point_masks": point_masks,
@@ -205,8 +210,13 @@ class OmniDataset(BaseDataset):
         }
         return batch
 
+
 if __name__ == "__main__":
     with initialize(version_base=None, config_path="../../config"):
         cfg = compose(config_name="default")
-    dataset = OmniDataset(common_conf=cfg.data.train.common_config, split="train", CAMERA_POSE_ROOT="/lustre/fsw/portfolios/nvr/projects/nvr_av_verifvalid/users/ymingli/datasets/Omnidata/omnidata_starter_dataset/camera_pose/replica/")
+    dataset = OmniDataset(
+        common_conf=cfg.data.train.common_config,
+        split="train",
+        CAMERA_POSE_ROOT="/lustre/fsw/portfolios/nvr/projects/nvr_av_verifvalid/users/ymingli/datasets/Omnidata/omnidata_starter_dataset/camera_pose/replica/"
+    )
     dataset[(0, 128, 1.0)]

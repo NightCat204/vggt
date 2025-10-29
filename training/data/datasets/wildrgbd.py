@@ -81,10 +81,12 @@ class WildRGBDDataset(BaseDataset):
                 if not osp.isdir(scene_dir):
                     continue
                 rgb_dir = osp.join(scene_dir, 'rgb')
+                mask_dir = osp.join(scene_dir, 'masks')
                 depth_dir = osp.join(scene_dir, 'depth')
                 meta_path = osp.join(scene_dir, 'metadata')
                 c2w_path = osp.join(scene_dir, 'cam_poses.txt')
-                if not (osp.isdir(rgb_dir) and osp.isdir(depth_dir) and osp.isfile(meta_path) and osp.isfile(c2w_path)):
+                if not (osp.isdir(rgb_dir) and osp.isdir(depth_dir) \
+                    and osp.isfile(meta_path) and osp.isfile(c2w_path)):
                     continue
 
                 try:
@@ -108,7 +110,7 @@ class WildRGBDDataset(BaseDataset):
         self.depth_max = 80  # optional clamp (meters). Set -1 to disable in threshold_depth_map.
 
         status = "Training" if self.training else "Testing"
-        logging.info(f"{status}: WildRGB-D scene count: {self.sequence_list_len}")
+        print(f"{status}: WildRGB-D scene count: {self.sequence_list_len}")
         logging.info(f"{status}: WildRGB-D dataset length: {len(self)}")
 
 
@@ -147,6 +149,7 @@ class WildRGBDDataset(BaseDataset):
         scene_dir = osp.join(self.WILDRGBD_DIR, category, scene)
         rgb_dir = osp.join(scene_dir, 'rgb')
         depth_dir = osp.join(scene_dir, 'depth')
+        mask_dir = osp.join(scene_dir, 'masks')
         meta_path = osp.join(scene_dir, 'metadata')
         cam2world_path = osp.join(scene_dir, 'cam_poses.txt')
 
@@ -189,24 +192,28 @@ class WildRGBDDataset(BaseDataset):
             stem5 = f"{id:05d}"
             image_filepath = osp.join(rgb_dir,   f"{stem5}.png")
             depth_filepath = osp.join(depth_dir, f"{stem5}.png")
-
+            mask_filepath = osp.join(mask_dir, f"{stem5}.png")
             image = read_image_cv2(image_filepath)
+            mask =  cv2.imread(mask_filepath, cv2.IMREAD_GRAYSCALE) > 128
 
             # convert mm to m
             depth_raw = cv2.imread(depth_filepath, cv2.IMREAD_UNCHANGED).astype(np.float64) / 1000.0
-            depth_map = threshold_depth_map(depth_raw, max_percentile=-1, min_percentile=-1, max_depth=self.depth_max)
+            depth_raw[~mask] = 0
+            depth_map = threshold_depth_map(depth_raw, max_percentile=98, min_percentile=-1, max_depth=self.depth_max)
 
             assert image.shape[:2] == depth_map.shape, \
                 f"Image and depth shape mismatch: {image.shape[:2]} vs {depth_map.shape}"
 
             original_size = np.array(image.shape[:2], dtype=np.int32)
 
-            T_wc = cam2world_all[id]
-            R_wc = T_wc[:3, :3]
-            t_wc = T_wc[:3, 3]
-            R_cw = R_wc.T
-            t_cw = -R_cw @ t_wc
-            extri_opencv = np.concatenate([R_cw, t_cw.reshape(3, 1)], axis=1).astype(np.float32)
+            T_cw = cam2world_all[id]
+            R_cw = T_cw[:3, :3]
+            t_cw = T_cw[:3, 3]
+            
+            R_wc = R_cw.T
+            t_wc = -R_wc @ t_cw
+
+            extri_opencv = np.concatenate([R_wc, t_wc.reshape(3, 1)], axis=1).astype(np.float32)
             intri_opencv = intri_template.copy()
 
             (

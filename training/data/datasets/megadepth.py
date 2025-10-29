@@ -1,4 +1,5 @@
 # data/datasets/megadepth.py
+from collections import defaultdict
 import os
 import os.path as osp
 import logging
@@ -6,6 +7,11 @@ import random
 import glob
 import h5py
 import numpy as np
+import sys
+from pathlib import Path
+# Add parent's parent directory to sys.path
+# print(str(Path(__file__).resolve().parent.parent.parent))
+sys.path.append(str(Path(__file__).resolve().parent.parent.parent))
 
 from data.dataset_util import *
 from data.base_dataset import BaseDataset
@@ -46,6 +52,9 @@ class MegaDepthDataset(BaseDataset):
         logging.info(f"MEGADEPTH_DIR is {self.MEGADEPTH_DIR}")
 
         sequence_list, sequence_lengths = [], []
+        ranking_dict = defaultdict(dict)
+        depth_list_dict = defaultdict(dict)
+
         scenes = sorted([d for d in os.listdir(self.MEGADEPTH_DIR) if os.path.isdir(osp.join(self.MEGADEPTH_DIR, d))])
         for scene in scenes:
             scene_dir = osp.join(self.MEGADEPTH_DIR, scene)
@@ -59,22 +68,27 @@ class MegaDepthDataset(BaseDataset):
                     continue
 
                 depth_files = sorted(glob.glob(osp.join(depths_dir, "**", "*.h5"), recursive=True))
-                count = 0
-                for dp in depth_files:
-                    rel = osp.relpath(dp, depths_dir)
-                    img_jpg = osp.join(imgs_dir,   osp.splitext(rel)[0] + ".jpg")
-                    img_png = osp.join(imgs_dir,   osp.splitext(rel)[0] + ".png")
-                    pose_npz= osp.join(poses_dir,  osp.splitext(rel)[0] + ".npz")
-                    if osp.isfile(pose_npz) and (osp.isfile(img_jpg) or osp.isfile(img_png)):
-                        count += 1
-                if count >= self.min_num_images:
+                if len(depth_files) >= self.min_num_images:
+                    sim_dir = poses_dir.replace("/camera_pose", "/similarity").rstrip("/")
+                    dists_npz = osp.join(sim_dir, "dists.npz")
+                    if not osp.exists(dists_npz):
+                        logging.warning(f"No dists.npz in {sim_dir}")
+                        continue
                     sequence_list.append((scene, dense_name))
-                    sequence_lengths.append(count)
+                    sequence_lengths.append(len(depth_files))
+                    depth_list_dict[scene][dense_name] = depth_files
+                    with np.load(dists_npz, allow_pickle=False) as z:
+                        r = z["ranking"].astype(np.int32, copy=True)  
+                    r.setflags(write=False)       
+                    ranking_dict[scene][dense_name] = r
+
+        self.ranking_dict = ranking_dict
+        self.depth_list_dict = depth_list_dict
 
         self.sequence_list = sequence_list
         self.sequence_list_len = len(self.sequence_list)
 
-        self.save_seq_stats(self.sequence_list, sequence_lengths, self.__class__.__name__)
+        # self.save_seq_stats(self.sequence_list, sequence_lengths, self.__class__.__name__)
 
         self.depth_max = 80.0
 
@@ -100,31 +114,28 @@ class MegaDepthDataset(BaseDataset):
             scene, dense_name = seq_name.split("/")
 
         dense_dir  = osp.join(self.MEGADEPTH_DIR, scene, dense_name)
-        imgs_dir   = osp.join(dense_dir, "imgs")
-        depths_dir = osp.join(dense_dir, "depths")
-        poses_dir  = osp.join(dense_dir, "camera_pose")
 
-        depth_files = sorted(glob.glob(osp.join(depths_dir, "**", "*.h5"), recursive=True))
-        tags = []
-        for dp in depth_files:
-            rel = osp.relpath(dp, depths_dir)
-            img_jpg = osp.join(imgs_dir,   osp.splitext(rel)[0] + ".jpg")
-            img_png = osp.join(imgs_dir,   osp.splitext(rel)[0] + ".png")
-            pose_npz= osp.join(poses_dir,  osp.splitext(rel)[0] + ".npz")
-            if osp.isfile(pose_npz) and (osp.isfile(img_jpg) or osp.isfile(img_png)):
-                tags.append(rel)
+        depth_files = self.depth_list_dict[scene][dense_name]
 
-        num_images = len(tags)
+        num_images = len(depth_files)
         if num_images < 1:
             raise ValueError(f"No valid frames in {seq_name}")
 
         if img_per_seq is None:
             img_per_seq = min(24, num_images)
-        if ids is None:
-            ids = np.random.choice(num_images, img_per_seq, replace=self.allow_duplicate_img)
 
-        if self.get_nearby:
-            ids = self.get_nearby_ids(ids, num_images, expand_ratio=self.expand_ratio)
+        ranking = self.ranking_dict[scene][dense_name]
+        # dists   = sim_mat["dists"]    # (N,N)
+        assert ranking.shape[0] == num_images, f"ranking rows != num_images ({ranking.shape[0]} vs {num_images})"
+
+
+        anchor_idx = random.randint(0, num_images - 1)
+        # print(f"anchor_idx = {anchor_idx}")
+        order = ranking[anchor_idx].tolist()
+        order = [i for i in order if i != anchor_idx]
+        topK  = order[:min(127, len(order))]
+        pick = sorted(random.sample(topK, img_per_seq - 1))
+        ids = [anchor_idx] + pick  
 
         target_image_shape = self.get_target_shape(aspect_ratio)
 
@@ -133,12 +144,14 @@ class MegaDepthDataset(BaseDataset):
         extrinsics, intrinsics, original_sizes = [], [], []
 
         for local_idx in ids:
-            rel = tags[int(local_idx)]
-            img_path = osp.join(imgs_dir,   osp.splitext(rel)[0] + ".jpg")
-            if not osp.isfile(img_path):
-                img_path = osp.join(imgs_dir, osp.splitext(rel)[0] + ".png")
-            depth_path = osp.join(depths_dir, rel)
-            pose_path  = osp.join(poses_dir,  osp.splitext(rel)[0] + ".npz")
+            depth_path = depth_files[int(local_idx)]
+            base_path = depth_path.replace("/depths/", "/imgs/").rsplit(".", 1)[0]
+            exts = [".jpg", ".JPG", ".png", ".PNG", ".jpeg", ".JPEG"]
+            for ext in exts:
+                img_path = base_path + ext
+                if osp.isfile(img_path):
+                    break
+            pose_path  = depth_path.replace("/depths/", "/camera_pose/").replace(".h5", ".npz")
 
             image = read_image_cv2(img_path)
 
@@ -191,7 +204,7 @@ class MegaDepthDataset(BaseDataset):
         set_name = "megadepth"
         batch = {
             "seq_name": f"{set_name}_{scene}_{dense_name}",
-            "ids": ids,
+            "ids": np.array(ids),
             "frame_num": len(extrinsics),
             "images": images,
             "depths": depths,
@@ -211,6 +224,6 @@ if __name__ == "__main__":
     ds = MegaDepthDataset(
         common_conf=cfg.data.train.common_config,
         split="train",
-        MEGADEPTH_DIR="/lustre/fsw/portfolios/nvr/projects/nvr_av_verifvalid/users/ymingli/datasets/MegaDepth/phoenix/S6/zl548/MegaDepth_v1",
+        MEGADEPTH_DIR="/home/solution/Documents/Projects/Dataset/MegaDepth/phoenix",
     )
     print(ds[(0, 24, 1.0)])

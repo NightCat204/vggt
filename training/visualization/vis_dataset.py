@@ -1,6 +1,8 @@
 import sys
 import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import warnings
+warnings.filterwarnings('ignore')
 import argparse
 import numpy as np
 import cv2
@@ -16,6 +18,10 @@ from data.datasets.ASE import ASEDataset
 from data.datasets.ADT import ADTDataset
 from data.datasets.mapillary import MapillaryDataset
 from data.datasets.megadepth import MegaDepthDataset
+from data.datasets.DL3DV import DL3DVDataset
+from data.datasets.co3d import Co3dDataset
+from data.datasets.scanNetv2 import ScanNetv2
+import time
 
 
 def rotmat_to_wxyz(R_cw: np.ndarray) -> tuple[float, float, float, float]:
@@ -78,8 +84,8 @@ def project_rgbd_to_world(rgb: np.ndarray, depth: np.ndarray, K: np.ndarray, R_w
     pc = np.hstack([xyz_w, rgb_sel]).astype(np.float32)
     return pc
 
-def visualize_batch_with_viser(batch: dict, point_size: float = 0.01, port: int = 8080,
-                               show_frustum: bool = True, frustum_scale: float = 0.25):
+def visualize_batch_with_viser(batch: dict, point_size: float = 0.01, port: int = 8085,
+                               show_frustum: bool = True, frustum_scale: float = 0.25, visualize_depth: bool = True):
     server = viser.ViserServer(port=port)
     url = server.request_share_url()
     print("Public share URL:", url)
@@ -87,7 +93,6 @@ def visualize_batch_with_viser(batch: dict, point_size: float = 0.01, port: int 
     server.scene.add_frame(name="/world")
 
     images       = batch["images"]
-    depths       = batch["depths"]
     extrinsics   = batch["extrinsics"]  # list of (3,4) [R|t] world->cam
     intrinsics   = batch["intrinsics"]  # list of (3,3) K
     frame_num    = batch["frame_num"]
@@ -95,56 +100,60 @@ def visualize_batch_with_viser(batch: dict, point_size: float = 0.01, port: int 
 
     print(f"[Viser] seq={seq_name}, frames={frame_num}")
 
-    # Add depth analysis
-    depth_max = 0
-    depth_min = 0
-    depth_mean = 0
+    if visualize_depth:
+        depths = batch["depths"]
 
-    for k in range(frame_num):
-        img = images[k]                      
-        dep = depths[k].astype(np.float32)   
-        E   = extrinsics[k].astype(np.float32)
-        K   = intrinsics[k].astype(np.float32)
+        # Add depth analysis
+        depth_max = 0
+        depth_min = 0
+        depth_mean = 0
 
-        R = E[:, :3]
-        t = E[:,  3]
+        for k in range(frame_num):
+            img = images[k]                      
+            dep = depths[k].astype(np.float32)   
+            E   = extrinsics[k].astype(np.float32)
+            K   = intrinsics[k].astype(np.float32)
 
-        depth_max = max(depth_max, dep.max())
-        depth_min = min(depth_min, dep.min())
-        depth_mean = depth_mean + dep.mean()
+            R = E[:, :3]
+            t = E[:,  3]
 
-        pc = project_rgbd_to_world(img, dep, K, R, t)
-        name = f"/frame_{k:04d}"
-        if pc.shape[0] > 0:
-            server.scene.add_point_cloud(
-                name=name,
-                points=pc[:, :3],
-                colors=pc[:, 3:6].astype(np.uint8),
-                point_size=point_size,
-            )
+            depth_max = max(depth_max, dep.max())
+            depth_min = min(depth_min, dep.min())
+            depth_mean = depth_mean + dep.mean()
 
-        if show_frustum:
-            H, W = img.shape[:2]
-            R_cw = R.T
-            C = -R_cw @ t
-            wxyz = rotmat_to_wxyz(R_cw)
-            fov_y, aspect = fov_aspect_from_K(K, W, H)
-            server.scene.add_camera_frustum(
-                name=name + "_frustum",
-                fov=float(fov_y),
-                aspect=float(aspect),
-                wxyz=wxyz,
-                position=tuple(C.tolist()),
-                scale=frustum_scale,
-                color=(78,120,192) if k == 0 else (60,60,60),
-                image=img,  
-            )
+            pc = project_rgbd_to_world(img, dep, K, R, t)
+            name = f"/frame_{k:04d}"
+            if pc.shape[0] > 0:
+                server.scene.add_point_cloud(
+                    name=name,
+                    points=pc[:, :3],
+                    colors=pc[:, 3:6].astype(np.uint8),
+                    point_size=point_size,
+                )
 
-    depth_mean = depth_mean / frame_num
-    server.gui.add_markdown(
-        content=f"Depth max: {depth_max}, min: {depth_min}, mean: {depth_mean}",
-    )
-    print(f"Depth max: {depth_max}, min: {depth_min}, mean: {depth_mean}")
+                if show_frustum:
+                    H, W = img.shape[:2]
+                    R_cw = R.T
+                    C = -R_cw @ t
+                    wxyz = rotmat_to_wxyz(R_cw)
+                    fov_y, aspect = fov_aspect_from_K(K, W, H)
+                    server.scene.add_camera_frustum(
+                        name=name + "_frustum",
+                        fov=float(fov_y),
+                        aspect=float(aspect),
+                        wxyz=wxyz,
+                        position=tuple(C.tolist()),
+                        scale=frustum_scale,
+                        color=(78,120,192) if k == 0 else (60,60,60),
+                        image=img,  
+                    )
+
+        depth_mean = depth_mean / frame_num
+        server.gui.add_markdown(
+            content=f"Depth max: {depth_max}, min: {depth_min}, mean: {depth_mean}",
+        )
+        print(f"Depth max: {depth_max}, min: {depth_min}, mean: {depth_mean}")
+
 
     import time
     while True:
@@ -155,29 +164,38 @@ PATH_ROOT_DICT = {
     'replica': '/lustre/fsw/portfolios/nvr/projects/nvr_av_verifvalid/users/ymingli/datasets/Omnidata/omnidata_starter_dataset/camera_pose/replica/',
     'blendedmvs': '/lustre/fsw/portfolios/nvr/projects/nvr_av_verifvalid/users/ymingli/datasets/BlendedMVS/BlendedMVS',
     'vkitti': '/lustre/fsw/portfolios/nvr/projects/nvr_av_verifvalid/users/ymingli/datasets/vkitti',
-    'wildrgbd': '/lustre/fsw/portfolios/nvr/projects/nvr_av_verifvalid/users/ymingli/datasets/WildRGB-D',
+    # 'wildrgbd': '/lustre/fsw/portfolios/nvr/projects/nvr_av_verifvalid/users/ymingli/datasets_final/WildRGB-D',
+    'wildrgbd': '/tmp/datasets_final/WildRGB-D',
     'MVSSynth': '/lustre/fsw/portfolios/nvr/projects/nvr_av_verifvalid/users/ymingli/datasets/MVS-Synth/GTAV_720',
     'ASE': '/lustre/fsw/portfolios/nvr/projects/nvr_av_verifvalid/users/ymingli/datasets/ASE',
     'ADT': '/lustre/fsw/portfolios/nvr/projects/nvr_av_verifvalid/users/ymingli/datasets/ADT',
     'mapillary': '/lustre/fsw/portfolios/nvr/projects/nvr_av_verifvalid/users/ymingli/datasets/Mapillary',
     'megadepth': '/lustre/fsw/portfolios/nvr/projects/nvr_av_verifvalid/users/ymingli/datasets/MegaDepth/phoenix/S6/zl548/MegaDepth_v1',
     'hypersim': '/lustre/fsw/portfolios/nvr/projects/nvr_av_verifvalid/users/ymingli/datasets/Omnidata/omnidata_starter_dataset/camera_pose/hypersim/',
+    'DL3DV': '/lustre/fsw/portfolios/nvr/projects/nvr_av_verifvalid/users/ymingli/datasets/DL3DV',
+    'co3d': '/lustre/fsw/portfolios/nvr/projects/nvr_av_verifvalid/users/ymingli/datasets/co3d',
+    'co3d_annotation': '/lustre/fsw/portfolios/nvr/projects/nvr_av_verifvalid/users/ymingli/datasets/co3d_anno',
+    'scanNetv2': '/lustre/fsw/portfolios/nvr/projects/nvr_av_verifvalid/users/ymingli/datasets/scannet_v2/scans_processed',
+    'taskonomy': '/lustre/fsw/portfolios/nvr/projects/nvr_av_verifvalid/users/ymingli/datasets/Omnidata/omnidata_starter_dataset/camera_pose/taskonomy',
 }
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--seq_index", type=int, default=10)
     parser.add_argument("--img_per_seq", type=int, default=24)
-    parser.add_argument("--point_size", type=float, default=0.01)
-    parser.add_argument("--port", type=int, default=8080)
+    parser.add_argument("--point_size", type=float, default=0.001)
+    parser.add_argument("--port", type=int, default=8085)
     parser.add_argument("--show_frustum", action="store_true", default=True)
+    parser.add_argument("--visualize_depth", action="store_true", default=False)
     parser.add_argument("--frustum_scale", type=float, default=0.5)
-    parser.add_argument("--dataset", type=str, default="megadepth")  # Change to your dataset
+    parser.add_argument("--dataset", type=str, default="co3d")  # Change to your dataset
     args = parser.parse_args()
 
     with initialize(version_base=None, config_path="../config"):
         cfg = compose(config_name="default")
 
+    # Load time analysis
+    start_time = time.time()
     if args.dataset == "blendedmvs":
         ds = BlendedMVSDataset(
             common_conf=cfg.data.train.common_config,
@@ -229,16 +247,41 @@ def main():
             split="train",
             MEGADEPTH_DIR=PATH_ROOT_DICT[args.dataset],
         )   
-    elif args.dataset in ["hypersim", "replica"]:
+    elif args.dataset in ["hypersim", "replica", "taskonomy"]:
         ds = OmniDataset(
             common_conf=cfg.data.train.common_config,
             split="train",
             CAMERA_POSE_ROOT=PATH_ROOT_DICT[args.dataset],
-        )   
+        )
+    elif args.dataset == "DL3DV":
+        args.visualize_depth = False
+        ds = DL3DVDataset(
+            common_conf=cfg.data.train.common_config,
+            split="train",
+            DL3DV_DIR=PATH_ROOT_DICT[args.dataset],
+        )
+    elif args.dataset == "co3d":
+        ds = Co3dDataset(
+            common_conf=cfg.data.train.common_config,
+            split="train",
+            CO3D_DIR=PATH_ROOT_DICT[args.dataset],
+            CO3D_ANNOTATION_DIR=PATH_ROOT_DICT["co3d_annotation"],
+        )
+    elif args.dataset == "scanNetv2":
+        ds = ScanNetv2(
+            common_conf=cfg.data.train.common_config,
+            split="train",
+            ScanNetv2_DIR=PATH_ROOT_DICT[args.dataset],
+        )
     else:
         raise ValueError(f"Invalid dataset: {args.dataset}")
+    end_time = time.time()
+    print(f"Time taken to initialize {args.dataset} dataset: {end_time - start_time} seconds")
 
+    start_time = time.time()
     batch = ds.get_data(seq_index=args.seq_index, img_per_seq=args.img_per_seq, aspect_ratio=1.0)
+    end_time = time.time()
+    print(f"Time taken to get data for {args.seq_index} sequence: {end_time - start_time} seconds")
 
     visualize_batch_with_viser(
         batch,
@@ -246,6 +289,7 @@ def main():
         port=args.port,
         show_frustum=args.show_frustum,
         frustum_scale=args.frustum_scale,
+        visualize_depth=args.visualize_depth,
     )
 
 if __name__ == "__main__":

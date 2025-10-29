@@ -23,7 +23,7 @@ class ScanNetv2(BaseDataset):
         self,
         common_conf,
         split: str = "train",
-        ScanNetv2_DIR: str = "/lustre/fsw/portfolios/nvr/projects/nvr_av_verifvalid/users/ymingli/datasets/vlm_visual_odom/ScanNet/decoded/test/",
+        ScanNetv2_DIR: str = "/lustre/fsw/portfolios/nvr/projects/nvr_av_verifvalid/users/ymingli/datasets/scannet_v2/scans_processed/",
         min_num_images: int = 24,
         len_train: int = 100000,
         len_test: int = 10000,
@@ -52,6 +52,7 @@ class ScanNetv2(BaseDataset):
 
         sequence_list = [p for p in glob.glob(osp.join(self.ScanNetv2_DIR, "*")) if osp.isdir(p)]
         sequence_list = sorted(sequence_list)
+        # sequence_list = sequence_list[:10] # for test
 
         # Filter sequences with enough images available
         filtered_list = []
@@ -72,8 +73,8 @@ class ScanNetv2(BaseDataset):
         self.depth_max = 80  # optional clamp (meters). Set -1 to disable in threshold_depth_map.
 
         status = "Training" if self.training else "Testing"
-        logging.info(f"{status}: ASE scene count: {self.sequence_list_len}")
-        logging.info(f"{status}: ASE dataset length: {len(self)}")
+        logging.info(f"{status}: ScanNetv2 scene count: {self.sequence_list_len}")
+        logging.info(f"{status}: ScanNetv2 dataset length: {len(self)}")
 
     def get_data(
         self,
@@ -112,17 +113,21 @@ class ScanNetv2(BaseDataset):
         intrinsic_matrix = np.loadtxt(intrinsics_txt_dir)
 
         for local_idx in ids:
-            # temporily set as five step
-            frame_id = str(local_idx * 5)
+ 
+            frame_id = str(local_idx)
             image_filepath = osp.join(seq_name, 'color', f'{frame_id}.jpg')
             image = read_image_cv2(image_filepath)
             
-            depth_filepath = osp.join(seq_name, 'depth',f'{frame_id}.jpg')
-            depth_map = read_depth(depth_filepath)
-         
-            # for debuging, use fake depth
-            # depth_map = np.full(image.shape[:2], 5.0, dtype=np.float32) # update this after download
-            depth_map = threshold_depth_map(depth_map)
+            # depth 
+            # example Depth max: 0.0002570152282714844, min: 0, mean: 0.00013199022669141414
+            depth_filepath = osp.join(seq_name, 'depth',f'{frame_id}.png')
+            depth_u16 = cv2.imread(depth_filepath, cv2.IMREAD_UNCHANGED)
+
+            invalid_mask = (depth_u16 == 0)
+            depth_m = depth_u16.astype(np.float32) / 1000.0   
+            depth_m[invalid_mask] = np.nan
+
+            depth_map = threshold_depth_map(depth_m)
 
             original_size = np.array(image.shape[:2])
 
@@ -183,7 +188,7 @@ class ScanNetv2(BaseDataset):
 if __name__ == "__main__":
     with initialize(version_base=None, config_path="../../config"):
         cfg = compose(config_name="default")
-    dataset = ScanNetv2(common_conf=cfg.data.train.common_config, split="train", ScanNetv2_DIR="/lustre/fsw/portfolios/nvr/projects/nvr_av_verifvalid/users/ymingli/datasets/vlm_visual_odom/ScanNet/decoded/test/")
+    dataset = ScanNetv2(common_conf=cfg.data.train.common_config, split="train", ScanNetv2_DIR="/lustre/fsw/portfolios/nvr/projects/nvr_av_verifvalid/users/ymingli/datasets/scannet_v2/scans_processed/")
     print(dataset[(0, 24, 1.0)])
 
 

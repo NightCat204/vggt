@@ -136,9 +136,16 @@ class Co3dDataset(BaseDataset):
                     self.CO3D_ANNOTATION_DIR, f"{c}_{split_name}.jgz"
                 )
 
+                with open(annotation_file, "rb") as f:
+                    magic = f.read(2)
+
                 try:
-                    with gzip.open(annotation_file, "r") as fin:
-                        annotation = json.loads(fin.read())
+                    if magic == b'\x1f\x8b':  # gzip magic number
+                        with gzip.open(annotation_file, "rt", encoding="utf-8") as fin:
+                            annotation = json.load(fin)
+                    else:  # regular JSON file
+                        with open(annotation_file, "r", encoding="utf-8") as fin:
+                            annotation = json.load(fin)
                 except FileNotFoundError:
                     logging.error(f"Annotation file not found: {annotation_file}")
                     continue

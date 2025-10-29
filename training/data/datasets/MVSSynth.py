@@ -159,7 +159,11 @@ class MVSSynthDataset(BaseDataset):
             # read exr depth map using specialized MVS-Synth reader
             # Channels: Y: HALF
             # Size: 1280x720
-            depth_map = self.read_mvs_synth_depth(depth_filepath)
+            # depth_map = self.read_mvs_synth_depth(depth_filepath)
+            depth_map = cv2.imread(depth_filepath, cv2.IMREAD_ANYDEPTH).astype(np.float32)
+            depth_map[np.isinf(depth_map)] = 0.0 
+            depth_map = depth_map * 0.1
+
             depth_map = threshold_depth_map(depth_map)  # not in meters
 
             original_size = np.array(image.shape[:2])

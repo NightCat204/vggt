@@ -12,6 +12,8 @@ from .dataset_util import *
 import yaml
 import os
 import matplotlib.pyplot as plt
+import logging
+import copy
 
 
 Image.MAX_IMAGE_PIXELS = None
@@ -57,24 +59,60 @@ class BaseDataset(Dataset):
         self.rescale = common_conf.rescale
         self.rescale_aug = common_conf.rescale_aug
         self.landscape_check = common_conf.landscape_check
+        self.max_item_retries = 5
+        self._last_good_item = None
+        self._fallback_used = 0
+        self._fallback_warn_every = 1000
+
 
     def __len__(self):
         return self.len_train
 
+    # def __getitem__(self, idx_N):
+    #     """
+    #     Get an item from the dataset.
+
+    #     Args:
+    #         idx_N: Tuple containing (seq_index, img_per_seq, aspect_ratio)
+
+    #     Returns:
+    #         Dataset item as returned by get_data()
+    #     """
+    #     seq_index, img_per_seq, aspect_ratio = idx_N
+    #     return self.get_data(
+    #         seq_index=seq_index, img_per_seq=img_per_seq, aspect_ratio=aspect_ratio
+    #     )
+
+
     def __getitem__(self, idx_N):
-        """
-        Get an item from the dataset.
-
-        Args:
-            idx_N: Tuple containing (seq_index, img_per_seq, aspect_ratio)
-
-        Returns:
-            Dataset item as returned by get_data()
-        """
         seq_index, img_per_seq, aspect_ratio = idx_N
-        return self.get_data(
-            seq_index=seq_index, img_per_seq=img_per_seq, aspect_ratio=aspect_ratio
-        )
+        last_err = None
+        max_retries = int(getattr(self, "max_item_retries", 5))
+
+        for _ in range(max_retries):
+            try:
+                item = self.get_data(seq_index=seq_index, img_per_seq=img_per_seq, aspect_ratio=aspect_ratio)
+                self._last_good_item = copy.deepcopy(item)
+                return item
+            except Exception as e:
+                last_err = e
+                if getattr(self, "training", False) and getattr(self, "inside_random", False):
+                    seq_len = int(getattr(self, "sequence_list_len", 1))
+                    if seq_len > 1:
+                        seq_index = int(np.random.randint(0, seq_len))
+
+        if self._last_good_item is not None:
+            self._fallback_used += 1
+            if self._fallback_used == 1 or (self._fallback_used % max(1, int(self._fallback_warn_every)) == 0):
+                logging.warning("get_data fallback used %d times; last error=%r", self._fallback_used, last_err)
+            fb = copy.deepcopy(self._last_good_item)
+            if isinstance(fb, dict):
+                fb["__fallback__"] = True
+            return fb
+
+        logging.error("get_data failed and no fallback available; last error=%r", last_err)
+        raise last_err
+
 
     def get_data(self, seq_index=None, seq_name=None, ids=None, aspect_ratio=1.0):
         """

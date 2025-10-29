@@ -15,7 +15,7 @@ except Exception:
 
 from data.dataset_util import read_image_cv2, threshold_depth_map, read_depth
 from data.base_dataset import BaseDataset
-
+from PIL import Image
 
 class MapillaryDataset(BaseDataset):
     DIRS = ["FRONT", "LEFT", "RIGHT", "BACK"]
@@ -148,7 +148,8 @@ class MapillaryDataset(BaseDataset):
             intri_opencv = rec["intrinsics"].copy()
             extri_opencv = rec["extrinsics_wc"].copy()
             image = read_image_cv2(rgb_path)
-            depth_map = read_depth(depth_path)
+            depth_map = Image.open(depth_path)
+            depth_map = np.array(depth_map, dtype=np.float32) / 256.0
 
             assert image.shape[:2] == depth_map.shape, f"Image and depth shape mismatch: {image.shape[:2]} vs {depth_map.shape}"
 

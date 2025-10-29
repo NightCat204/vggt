@@ -114,7 +114,7 @@ class DynamicBatchSampler(Sampler):
             seed: Random seed for reproducibility.
             max_img_per_gpu: Maximum number of images to fit in GPU memory.
         """
-        self.sampler = sampler
+        self.sampler:DistributedSampler = sampler
         self.aspect_ratio_range = aspect_ratio_range
         self.image_num_range = image_num_range
         self.rng = random.Random()
