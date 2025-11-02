@@ -14,8 +14,9 @@ from data.datasets.blendedmvs import BlendedMVSDataset
 from data.datasets.vkitti import VKittiDataset
 from data.datasets.wildrgbd import WildRGBDDataset
 from data.datasets.MVSSynth import MVSSynthDataset
-from data.datasets.ASE import ASEDataset
-from data.datasets.ADT import ADTDataset
+# ASE 和 ADT 需要 projectaria_tools，暂时注释掉
+# from data.datasets.ASE import ASEDataset
+# from data.datasets.ADT import ADTDataset
 from data.datasets.mapillary import MapillaryDataset
 from data.datasets.megadepth import MegaDepthDataset
 from data.datasets.DL3DV import DL3DVDataset
@@ -154,16 +155,49 @@ def visualize_batch_with_viser(batch: dict, point_size: float = 0.01, port: int 
         )
         print(f"Depth max: {depth_max}, min: {depth_min}, mean: {depth_mean}")
 
+    # 保持服务器运行
+    print(f"\nViser server running at: http://localhost:{port}")
+    print("Share URL (expires in 24 hours):", url)
+    
+    # 让 viser 的事件循环继续运行，添加定期的 GUI 更新以保持活跃
+    try:
+        print("Server is active. Press Ctrl+C to exit or just wait.")
+        # 添加一个计数器用于心跳
+        hb_counter = server.gui.add_number("Heartbeat", 0, step=1)
+        counter = 0
+        last_exception = None
+        
+        while True:
+            try:
+                time.sleep(1)
+                counter += 1
+                # 更新计数器值以保持连接活跃
+                hb_counter.value = counter
+                if counter % 10 == 0:
+                    print(f"[Heartbeat] {counter}s - Server alive")
+            except Exception as e:
+                print(f"[Error in loop] {type(e).__name__}: {e}")
+                last_exception = e
+                # 继续运行，不中断
+                time.sleep(1)
+                continue
+                
+    except (KeyboardInterrupt, BrokenPipeError) as e:
+        print(f"[Shutdown] {type(e).__name__}")
+    except Exception as e:
+        print(f"[Fatal Error] {type(e).__name__}: {e}")
+        import traceback
+        traceback.print_exc()
+    finally:
+        print("\nServer closed.")
 
-    import time
-    while True:
-        time.sleep(1)
-
-# Add PATH here
 PATH_ROOT_DICT = {
     'replica': '/lustre/fsw/portfolios/nvr/projects/nvr_av_verifvalid/users/ymingli/datasets/Omnidata/omnidata_starter_dataset/camera_pose/replica/',
     'blendedmvs': '/lustre/fsw/portfolios/nvr/projects/nvr_av_verifvalid/users/ymingli/datasets/BlendedMVS/BlendedMVS',
-    'vkitti': '/lustre/fsw/portfolios/nvr/projects/nvr_av_verifvalid/users/ymingli/datasets/vkitti',
+    
+    # ✅ LOCAL PATH - VKitti dataset (currently working)
+    'vkitti': '/home/wpy/Personal/File/Research/LargeOdometryModel/VGGT_Test/vkitti/vkitti_mini',
+    
     # 'wildrgbd': '/lustre/fsw/portfolios/nvr/projects/nvr_av_verifvalid/users/ymingli/datasets_final/WildRGB-D',
     'wildrgbd': '/tmp/datasets_final/WildRGB-D',
     'MVSSynth': '/lustre/fsw/portfolios/nvr/projects/nvr_av_verifvalid/users/ymingli/datasets/MVS-Synth/GTAV_720',
@@ -175,7 +209,7 @@ PATH_ROOT_DICT = {
     'DL3DV': '/lustre/fsw/portfolios/nvr/projects/nvr_av_verifvalid/users/ymingli/datasets/DL3DV',
     'co3d': '/lustre/fsw/portfolios/nvr/projects/nvr_av_verifvalid/users/ymingli/datasets/co3d',
     'co3d_annotation': '/lustre/fsw/portfolios/nvr/projects/nvr_av_verifvalid/users/ymingli/datasets/co3d_anno',
-    'scanNetv2': '/lustre/fsw/portfolios/nvr/projects/nvr_av_verifvalid/users/ymingli/datasets/scannet_v2/scans_processed',
+    'scanNetv2': '/home/wpy/Personal/File/Research/LargeOdometryModel/VGGT_Test/ScanNetv2',  # <- CHANGE THIS
     'taskonomy': '/lustre/fsw/portfolios/nvr/projects/nvr_av_verifvalid/users/ymingli/datasets/Omnidata/omnidata_starter_dataset/camera_pose/taskonomy',
 }
 
@@ -185,11 +219,18 @@ def main():
     parser.add_argument("--img_per_seq", type=int, default=24)
     parser.add_argument("--point_size", type=float, default=0.001)
     parser.add_argument("--port", type=int, default=8085)
-    parser.add_argument("--show_frustum", action="store_true", default=True)
-    parser.add_argument("--visualize_depth", action="store_true", default=False)
+    # 修复：使用互斥参数组来正确处理布尔标志
+    parser.add_argument("--no_frustum", action="store_true", 
+                       help="Disable camera frustum visualization")
+    parser.add_argument("--no_depth", action="store_true",
+                       help="Disable depth visualization")
     parser.add_argument("--frustum_scale", type=float, default=0.5)
-    parser.add_argument("--dataset", type=str, default="co3d")  # Change to your dataset
+    parser.add_argument("--dataset", type=str, default="vkitti")  # 改为本地数据集
     args = parser.parse_args()
+    
+    # 设置默认值（如果没有指定--no_frustum，则显示）
+    args.show_frustum = not args.no_frustum
+    args.visualize_depth = not args.no_depth
 
     with initialize(version_base=None, config_path="../config"):
         cfg = compose(config_name="default")
@@ -223,18 +264,19 @@ def main():
             split="train",
             MVSSynth_DIR=PATH_ROOT_DICT[args.dataset],
         )
-    elif args.dataset == "ASE":
-        ds = ASEDataset(
-            common_conf=cfg.data.train.common_config,
-            split="train",
-            ASE_DIR=PATH_ROOT_DICT[args.dataset],
-        )
-    elif args.dataset == "ADT":
-        ds = ADTDataset(
-            common_conf=cfg.data.train.common_config,
-            split="train",
-            ADT_DIR=PATH_ROOT_DICT[args.dataset],
-        )
+    # ASE 和 ADT 需要 projectaria_tools，暂时注释
+    # elif args.dataset == "ASE":
+    #     ds = ASEDataset(
+    #         common_conf=cfg.data.train.common_config,
+    #         split="train",
+    #         ASE_DIR=PATH_ROOT_DICT[args.dataset],
+    #     )
+    # elif args.dataset == "ADT":
+    #     ds = ADTDataset(
+    #         common_conf=cfg.data.train.common_config,
+    #         split="train",
+    #         ADT_DIR=PATH_ROOT_DICT[args.dataset],
+    #     )
     elif args.dataset == "mapillary":
         ds = MapillaryDataset(
             common_conf=cfg.data.train.common_config,
