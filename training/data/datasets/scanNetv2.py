@@ -1,33 +1,46 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the license found in the
+# LICENSE file in the root directory of this source tree.
+
 import os
 import os.path as osp
-import glob
 import logging
 import random
-import json
-from pathlib import Path
+import glob
 
 import cv2
 import numpy as np
 
 from data.dataset_util import *
 from data.base_dataset import BaseDataset
-from utils.scannet_sens_reader import load_sens_file
-
-from hydra import initialize, compose
 
 
 class ScanNetv2(BaseDataset):
     """
     ScanNetv2 Dataset Loader
     
-    Reads RGB-D data directly from .sens files using scannet_sens_reader.
-    Compatible with VGGT training framework.
+    读取预处理后的ScanNet数据（RGB/depth/pose分离存储）
+    与vkitti数据集处理流程保持一致
     
-    Dataset structure:
+    预处理数据结构（通过scannet_preprocess.py生成）：
         ScanNetv2_DIR/
             scene0000_00/
-                scene0000_00.sens  <- Main data file
-                scene0000_00.txt   <- Scene metadata (optional)
+                color/
+                    000000.jpg
+                    000001.jpg
+                    ...
+                depth/
+                    000000.png  (uint16, millimeters)
+                    000001.png
+                    ...
+                pose/
+                    000000.txt  (4x4 camera-to-world matrix)
+                    000001.txt
+                    ...
+                intrinsic.txt   (3x3 camera intrinsics)
+                metadata.txt    (scene metadata)
             scene0001_00/
                 ...
     """
@@ -35,26 +48,35 @@ class ScanNetv2(BaseDataset):
         self,
         common_conf,
         split: str = "train",
-        ScanNetv2_DIR: str = "/home/wpy/Personal/File/Research/LargeOdometryModel/VGGT_Test/ScanNetv2",
+        ScanNetv2_DIR: str = "/home/wpy/Personal/File/Research/LargeOdometryModel/VGGT_Test/ScanNetv2_Processed",
         min_num_images: int = 24,
         len_train: int = 100000,
         len_test: int = 10000,
         expand_ratio: int = 8,
-        max_frames_per_scene: int = None,  # Load all frames if None
-        use_color_intrinsics: bool = True,  # Use color camera intrinsics (vs depth)
     ):
+        """
+        初始化ScanNetv2数据集
+        
+        Args:
+            common_conf: 通用配置对象
+            split: 数据集划分 ('train' 或 'test')
+            ScanNetv2_DIR: 预处理后的数据目录
+            min_num_images: 每个场景最小帧数
+            len_train: 训练集长度
+            len_test: 测试集长度
+            expand_ratio: nearby采样的扩展比例
+        """
         super().__init__(common_conf=common_conf)
+
         self.debug = common_conf.debug
         self.training = common_conf.training
         self.get_nearby = common_conf.get_nearby
         self.inside_random = common_conf.inside_random
         self.allow_duplicate_img = common_conf.allow_duplicate_img
-
+        
         self.expand_ratio = expand_ratio
         self.ScanNetv2_DIR = ScanNetv2_DIR.rstrip("/")
         self.min_num_images = min_num_images
-        self.max_frames_per_scene = max_frames_per_scene
-        self.use_color_intrinsics = use_color_intrinsics
 
         if split == "train":
             self.len_train = len_train
@@ -62,169 +84,166 @@ class ScanNetv2(BaseDataset):
             self.len_train = len_test
         else:
             raise ValueError(f"Invalid split: {split}")
-            
+        
         logging.info(f"ScanNetv2 Dataset Dir = {self.ScanNetv2_DIR}")
 
-        # Scan for .sens files instead of processed directories
-        sens_files = glob.glob(osp.join(self.ScanNetv2_DIR, "*/*.sens"))
-        sens_files = sorted(sens_files)
+        # 扫描所有场景目录（含color子目录的即为有效场景）
+        scene_dirs = sorted(glob.glob(osp.join(self.ScanNetv2_DIR, "*")))
+        scene_dirs = [d for d in scene_dirs if osp.isdir(d) and osp.exists(osp.join(d, "color"))]
         
-        logging.info(f"Found {len(sens_files)} .sens files")
+        logging.info(f"Found {len(scene_dirs)} potential scenes")
 
-        # Cache to store loaded sensor data (avoid repeated file I/O)
-        self._sensor_data_cache = {}
-        
-        # Filter scenes with enough frames by reading .sens headers
-        filtered_list = []
+        # 过滤：检查帧数是否满足最小要求
+        filtered_scenes = []
         seq_lengths = []
         
-        for sens_file in sens_files:
-            scene_name = osp.basename(osp.dirname(sens_file))
+        for scene_dir in scene_dirs:
+            scene_name = osp.basename(scene_dir)
+            color_files = sorted(glob.glob(osp.join(scene_dir, "color", "*.jpg")))
+            num_frames = len(color_files)
             
-            try:
-                # Load sensor data to check frame count
-                sensor_data = self._load_sensor_data(sens_file)
-                num_frames = len(sensor_data.color_images)
-                
-                if num_frames >= self.min_num_images:
-                    filtered_list.append(sens_file)
-                    seq_lengths.append(num_frames)
-                    logging.debug(f"Scene {scene_name}: {num_frames} frames")
-                else:
-                    logging.debug(f"Skipping {scene_name}: only {num_frames} frames (< {self.min_num_images})")
-                    
-            except Exception as e:
-                logging.warning(f"Failed to load {sens_file}: {e}")
-                continue
+            if num_frames >= self.min_num_images:
+                filtered_scenes.append(scene_name)
+                seq_lengths.append(num_frames)
+                logging.debug(f"Scene {scene_name}: {num_frames} frames")
+            else:
+                logging.debug(f"Skipping {scene_name}: only {num_frames} frames (< {self.min_num_images})")
 
-        self.sequence_list = filtered_list
+        self.sequence_list = filtered_scenes
         self.sequence_list_len = len(self.sequence_list)
 
-        # Save statistics
+        # 保存统计信息
         if self.sequence_list_len > 0:
-            scene_names = [osp.basename(osp.dirname(f)) for f in self.sequence_list]
-            self.save_seq_stats(scene_names, seq_lengths, self.__class__.__name__)
+            self.save_seq_stats(self.sequence_list, seq_lengths, self.__class__.__name__)
 
-        self.depth_max = 10.0  # Max depth in meters (ScanNet indoor scenes)
+        # ScanNet室内场景深度范围通常在10米内
+        self.depth_max = 10.0
 
         status = "Training" if self.training else "Testing"
         logging.info(f"{status}: ScanNetv2 scene count: {self.sequence_list_len}")
         logging.info(f"{status}: ScanNetv2 dataset length: {len(self)}")
-    
-    def _load_sensor_data(self, sens_file: str):
-        """
-        Load and cache sensor data from .sens file
-        
-        Args:
-            sens_file: Path to .sens file
-            
-        Returns:
-            SensorData object
-        """
-        if sens_file not in self._sensor_data_cache:
-            logging.info(f"Loading SENS file: {sens_file}")
-            sensor_data = load_sens_file(sens_file, max_frames=self.max_frames_per_scene)
-            self._sensor_data_cache[sens_file] = sensor_data
-        
-        return self._sensor_data_cache[sens_file]
 
     def get_data(
         self,
         seq_index: int = None,
         img_per_seq: int = 24,
-        seq_name: str = None,   
-        ids: list = None,       
-        aspect_ratio: float = 1.0
+        seq_name: str = None,
+        ids: list = None,
+        aspect_ratio: float = 1.0,
     ) -> dict:
         """
-        Retrieve data for a specific scene from .sens file
+        获取指定序列的数据
         
         Args:
-            seq_index: Index of sequence in sequence_list
-            img_per_seq: Number of images to sample per sequence
-            seq_name: Not used (kept for API compatibility)
-            ids: Specific frame indices to load
-            aspect_ratio: Target aspect ratio for image processing
+            seq_index: 序列索引
+            img_per_seq: 每个序列采样的图像数量
+            seq_name: 序列名称（可选，优先使用seq_index）
+            ids: 指定的帧索引列表（可选）
+            aspect_ratio: 目标图像宽高比
             
         Returns:
-            Dictionary containing:
-                - seq_name: Scene name
-                - ids: Frame indices
-                - frame_num: Number of frames
-                - images: List of RGB images (H, W, 3)
-                - depths: List of depth maps (H, W)
-                - extrinsics: List of camera extrinsics (3, 4) [R|t] camera-to-world
-                - intrinsics: List of camera intrinsics (3, 3)
-                - cam_points: List of 3D points in camera coordinates
-                - world_points: List of 3D points in world coordinates
-                - point_masks: List of valid point masks
-                - original_sizes: List of original image sizes
+            包含以下字段的字典：
+                - seq_name: 场景名称
+                - ids: 帧索引列表
+                - frame_num: 帧数
+                - images: RGB图像列表 (H, W, 3)
+                - depths: 深度图列表 (H, W)
+                - extrinsics: 外参矩阵列表 (3, 4) [R|t] world-to-camera
+                - intrinsics: 内参矩阵列表 (3, 3)
+                - cam_points: 相机坐标系3D点列表
+                - world_points: 世界坐标系3D点列表
+                - point_masks: 有效点掩码列表
+                - original_sizes: 原始图像尺寸列表
         """
-        # Random sampling if training
+        # 训练时随机采样
         if self.inside_random and self.training:
             seq_index = random.randint(0, self.sequence_list_len - 1)
 
-        # Get .sens file path
-        sens_file = self.sequence_list[seq_index]
-        scene_name = osp.basename(osp.dirname(sens_file))
-        
-        # Load sensor data (cached)
-        sensor_data = self._load_sensor_data(sens_file)
-        num_images = len(sensor_data.color_images)
+        # 获取场景名称
+        if seq_name is None:
+            seq_name = self.sequence_list[seq_index]
 
-        # Sample frame indices
+        scene_dir = osp.join(self.ScanNetv2_DIR, seq_name)
+        
+        # 加载相机内参
+        try:
+            intrinsic_matrix = np.loadtxt(osp.join(scene_dir, "intrinsic.txt"))
+        except Exception as e:
+            logging.error(f"Error loading intrinsic for {seq_name}: {e}")
+            raise
+
+        # 统计可用帧数
+        color_files = sorted(glob.glob(osp.join(scene_dir, "color", "*.jpg")))
+        num_images = len(color_files)
+
+        # 采样帧索引
         if ids is None:
             ids = np.random.choice(num_images, img_per_seq, replace=self.allow_duplicate_img)
 
-        # Apply nearby sampling if enabled
+        # 应用nearby采样策略
         if self.get_nearby:
             ids = self.get_nearby_ids(ids, num_images, expand_ratio=self.expand_ratio)
 
-        # Get target image shape
+        # 获取目标图像尺寸
         target_image_shape = self.get_target_shape(aspect_ratio)
 
-        # Get camera intrinsics (use color or depth camera)
-        if self.use_color_intrinsics:
-            intrinsic_matrix = sensor_data.get_color_intrinsics_3x3()
-        else:
-            intrinsic_matrix = sensor_data.get_depth_intrinsics_3x3()
-
-        # Initialize output lists
+        # 初始化输出列表
         images, depths = [], []
         extrinsics, intrinsics = [], []
         cam_points, world_points = [], []
         point_masks, original_sizes = [], []
 
-        # Process each frame
-        for local_idx in ids:
-            # Get frame data from sensor_data
-            color_img, depth_img, pose_c2w = sensor_data.get_frame_data(local_idx)
-            
-            if color_img is None or depth_img is None:
-                logging.warning(f"Skipping frame {local_idx} in {scene_name} (invalid data)")
+        # 逐帧加载数据
+        for image_idx in ids:
+            # 构建文件路径
+            color_path = osp.join(scene_dir, "color", f"{image_idx:06d}.jpg")
+            depth_path = osp.join(scene_dir, "depth", f"{image_idx:06d}.png")
+            pose_path = osp.join(scene_dir, "pose", f"{image_idx:06d}.txt")
+
+            # 检查文件存在性
+            if not all(osp.exists(p) for p in [color_path, depth_path, pose_path]):
+                logging.warning(f"Missing files for {seq_name} frame {image_idx}, skipping")
                 continue
+
+            # 读取RGB图像
+            image = read_image_cv2(color_path)
             
-            # Convert depth from uint16 (millimeters) to float32 (meters)
-            depth_m = depth_img.astype(np.float32) / 1000.0
+            # 读取深度图 (uint16, millimeters)
+            depth_map = cv2.imread(depth_path, cv2.IMREAD_ANYCOLOR | cv2.IMREAD_ANYDEPTH)
             
-            # Apply depth thresholding
-            depth_m = threshold_depth_map(
-                depth_m, 
+            # 深度单位转换: millimeters -> meters
+            depth_map = depth_map.astype(np.float32) / 1000.0
+            
+            # ScanNet特性：RGB和深度分辨率不同，需要resize深度图到RGB尺寸
+            if image.shape[:2] != depth_map.shape:
+                # 使用最近邻插值保持深度值准确性
+                depth_map = cv2.resize(
+                    depth_map, 
+                    (image.shape[1], image.shape[0]),  # (width, height)
+                    interpolation=cv2.INTER_NEAREST
+                )
+            
+            # 深度阈值处理
+            depth_map = threshold_depth_map(
+                depth_map, 
                 max_percentile=-1, 
                 min_percentile=-1, 
                 max_depth=self.depth_max
             )
+
+            original_size = np.array(image.shape[:2])
+
+            # 加载相机位姿 (4x4 camera-to-world)
+            pose_c2w = np.loadtxt(pose_path)
             
-            original_size = np.array(color_img.shape[:2])
-            
-            # Convert camera-to-world to world-to-camera (OpenCV convention)
-            # pose_c2w is the camera-to-world transformation from SENS file
-            # We need world-to-camera (camera-from-world) for VGGT
+            # 转换为world-to-camera (OpenCV约定)
             pose_w2c = np.linalg.inv(pose_c2w)
             extri_opencv = pose_w2c[:3, :]  # (3, 4) [R|t]
+            
+            # 复制内参矩阵
             intri_opencv = intrinsic_matrix.copy()
 
-            # Process the image using base class method
+            # 使用基类方法处理图像（包括调整大小、数据增强等）
             (
                 image,
                 depth_map,
@@ -235,24 +254,23 @@ class ScanNetv2(BaseDataset):
                 point_mask,
                 _,
             ) = self.process_one_image(
-                color_img,
-                depth_m,
+                image,
+                depth_map,
                 extri_opencv,
                 intri_opencv,
                 original_size,
                 target_image_shape,
-                filepath=f"{scene_name}/frame_{local_idx}",
+                filepath=f"{seq_name}/frame_{image_idx:06d}",
             )
 
-            # Validate output shape
+            # 验证输出尺寸
             if (image.shape[:2] != target_image_shape).any():
                 logging.error(
-                    f"Wrong shape for {scene_name} frame {local_idx}: "
-                    f"expected {target_image_shape}, got {image.shape[:2]}"
+                    f"Wrong shape for {seq_name}: expected {target_image_shape}, got {image.shape[:2]}"
                 )
                 continue
 
-            # Append to output lists
+            # 添加到输出列表
             images.append(image)
             depths.append(depth_map)
             extrinsics.append(extri_opencv)
@@ -262,16 +280,16 @@ class ScanNetv2(BaseDataset):
             point_masks.append(point_mask)
             original_sizes.append(original_size)
 
-        # Construct output batch
+        # 构建输出batch
         set_name = "scanNetv2"
         batch = {
-            "seq_name": f"{set_name}_{scene_name}",
+            "seq_name": f"{set_name}_{seq_name}",
             "ids": ids,
             "frame_num": len(extrinsics),
             "images": images,
             "depths": depths,
-            "extrinsics": extrinsics,   
-            "intrinsics": intrinsics,   
+            "extrinsics": extrinsics,
+            "intrinsics": intrinsics,
             "cam_points": cam_points,
             "world_points": world_points,
             "point_masks": point_masks,
@@ -279,22 +297,25 @@ class ScanNetv2(BaseDataset):
         }
         return batch
 
+
 if __name__ == "__main__":
-    # Test loading ScanNetv2 from .sens files
+    # 测试数据加载
+    from hydra import initialize, compose
+    
     with initialize(version_base=None, config_path="../../config"):
         cfg = compose(config_name="default")
     
-    # ⚠️ PATH TO MODIFY: Update ScanNetv2_DIR to your dataset location
+    # ⚠️ 路径修改：指向预处理后的数据目录
     dataset = ScanNetv2(
-        common_conf=cfg.data.train.common_config, 
-        split="train", 
-        ScanNetv2_DIR="/home/wpy/Personal/File/Research/LargeOdometryModel/VGGT_Test/ScanNetv2",  # <- CHANGE THIS
-        max_frames_per_scene=50,  # Limit frames for faster testing
+        common_conf=cfg.data.train.common_config,
+        split="train",
+        ScanNetv2_DIR="/home/wpy/Personal/File/Research/LargeOdometryModel/VGGT_Test/ScanNetv2_Processed",  # <- 修改此路径
+        min_num_images=10,
     )
     
     print(f"Dataset initialized with {len(dataset.sequence_list)} scenes")
     
-    # Test getting data
+    # 测试数据获取
     if len(dataset.sequence_list) > 0:
         batch = dataset.get_data(seq_index=0, img_per_seq=5, aspect_ratio=1.0)
         print(f"Loaded batch: {batch['seq_name']}")
@@ -303,8 +324,3 @@ if __name__ == "__main__":
         print(f"  Depth shape: {batch['depths'][0].shape}")
         print(f"  Intrinsics shape: {batch['intrinsics'][0].shape}")
         print(f"  Extrinsics shape: {batch['extrinsics'][0].shape}")
-
-
-
-
-

@@ -209,7 +209,8 @@ PATH_ROOT_DICT = {
     'DL3DV': '/lustre/fsw/portfolios/nvr/projects/nvr_av_verifvalid/users/ymingli/datasets/DL3DV',
     'co3d': '/lustre/fsw/portfolios/nvr/projects/nvr_av_verifvalid/users/ymingli/datasets/co3d',
     'co3d_annotation': '/lustre/fsw/portfolios/nvr/projects/nvr_av_verifvalid/users/ymingli/datasets/co3d_anno',
-    'scanNetv2': '/home/wpy/Personal/File/Research/LargeOdometryModel/VGGT_Test/ScanNetv2',  # <- CHANGE THIS
+    # ScanNet: 指向预处理后的数据目录 (通过scannet_preprocess.py生成)
+    'scanNetv2': '/home/wpy/Personal/File/Research/LargeOdometryModel/VGGT_Test/ScanNetv2_Processed',  # <- 修改此路径
     'taskonomy': '/lustre/fsw/portfolios/nvr/projects/nvr_av_verifvalid/users/ymingli/datasets/Omnidata/omnidata_starter_dataset/camera_pose/taskonomy',
 }
 
